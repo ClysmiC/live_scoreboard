@@ -71,7 +71,7 @@ def fontFit(name, stringToFit, dimensionsToFit):
 
 class LiveScoreboard:
     def __init__(self):
-        self.timestamp = 0
+        self.updateCount = 0
 
         #
         # Split the screen up into these virtual rows and columns. Use these
@@ -109,28 +109,7 @@ class LiveScoreboard:
         self.timePanel = TimePanel(timePanelX1, timePanelY1, timePanelWidth, timePanelHeight)
         self.weatherPanel = WeatherPanel(weatherPanelX1, weatherPanelY1, weatherPanelWidth, weatherPanelHeight)
 
-
-        # Update weather panel
-        weatherInfo = hourlyForecast(WEATHER_LOCATION[0], WEATHER_LOCATION[1], wundergroundApiKey)
-        weatherInfoToDisplay = []
-
-        # Only display up to 12 hours, using the following rules.
-        #
-        # 1. Next 3 hours are always displayed
-        # 2. Only even hours are displayed (except when rule 1)
-        # 3. 00:00 - 05:59 are not displayed (except when rule 1)
-        for i, hour in enumerate(weatherInfo):
-            if len(weatherInfoToDisplay) == 12:
-                break
-
-            if i < 3:
-                weatherInfoToDisplay.append(hour)
-            elif hour["time"].hour % 2 == 0 and hour["time"].hour > 5:
-                weatherInfoToDisplay.append(hour)
-
-        self.weatherPanel.setWeather(weatherInfoToDisplay)
-        self.weatherPanel.update()
-
+        self.weatherQueryMade = False
 
         self.update()
 
@@ -139,11 +118,42 @@ class LiveScoreboard:
     # to be updated.
     #
     def update(self):
-        self.timestamp += 1
+        now = datetime.now()
+        firstUpdate = (self.updateCount == 0)
 
-        self.timePanel.setTime(datetime.now())
+        # Update the time panel
+        self.timePanel.setTime(now)
         self.timePanel.update()
 
+        # Update weather panel on the 40 minute mark
+        if firstUpdate or now.minute > 40 and not self.weatherQueryMade:
+            weatherInfo = hourlyForecast(WEATHER_LOCATION[0], WEATHER_LOCATION[1], wundergroundApiKey)
+            weatherInfoToDisplay = []
+
+            # Only display up to 12 hours, using the following rules.
+            #
+            # 1. Next 3 hours are always displayed
+            # 2. Only even hours are displayed (except when rule 1)
+            # 3. 00:00 - 05:59 are not displayed (except when rule 1)
+            for i, hour in enumerate(weatherInfo):
+                if len(weatherInfoToDisplay) == 12:
+                    break
+
+                if i < 3:
+                    weatherInfoToDisplay.append(hour)
+                elif hour["time"].hour % 2 == 0 and hour["time"].hour > 5:
+                    weatherInfoToDisplay.append(hour)
+
+            self.weatherPanel.setWeather(weatherInfoToDisplay)
+            self.weatherPanel.update()
+
+            weatherQueryMade = True
+
+        if now.minute < 40:
+            weatherQueryMade = False
+            
+
+        self.updateCount += 1
         root.after(1000, self.update)
 
 
@@ -276,6 +286,8 @@ class WeatherPanel:
 def exitTkinter(event):
     root.destroy()
     
+
+weatherQueryMinuteMark = 40
 
 root = tk.Tk()
 
