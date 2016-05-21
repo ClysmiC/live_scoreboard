@@ -3,11 +3,12 @@
 from scrape.mlb_scraper_mlb_api import MlbScraperMlbApi
 from weather.weather_info_wunderground import hourlyForecast
 
-import PIL
 from datetime import datetime, timedelta
 import time
 import Tkinter as tk
 import tkFont
+
+from PIL import Image, ImageTk
 
 # Eastern Time
 # RASPBERRY_PI_TIMEZONE = "ET"
@@ -66,8 +67,84 @@ def fontFit(name, stringToFit, dimensionsToFit):
 
         font = biggerFont
 
-    print("Final font size" + str(fontSize))
-    return font
+    return font, (fontSize - 1)
+
+class LiveScoreboard:
+    def __init__(self):
+        self.timestamp = 0
+
+        #
+        # Split the screen up into these virtual rows and columns. Use these
+        # to determine where to position each element. This lets the elements
+        # automatically resize on different sized monitors
+        #
+        numColumns = 30
+        numRows = 20
+
+        columns = []
+        rows = []
+
+        for i in range(numColumns):
+            columns.append(int(screenWidth) / numColumns * i)
+
+            for i in range(numRows):
+                rows.append(int(screenHeight) / numRows * i)
+
+
+
+        timePanelX1 = columns[1]
+        timePanelY1 = rows[1]
+        timePanelX2 = columns[13]
+        timePanelY2 = rows[6]
+        timePanelWidth = timePanelX2 - timePanelX1
+        timePanelHeight = timePanelY2 - timePanelY1
+
+        weatherPanelX1 = columns[1]
+        weatherPanelY1 = rows[7]
+        weatherPanelX2 = columns[9]
+        weatherPanelY2 = rows[19]
+        weatherPanelWidth = weatherPanelX2 - weatherPanelX1
+        weatherPanelHeight = weatherPanelY2 - weatherPanelY1
+
+        self.timePanel = TimePanel(timePanelX1, timePanelY1, timePanelWidth, timePanelHeight)
+        self.weatherPanel = WeatherPanel(weatherPanelX1, weatherPanelY1, weatherPanelWidth, weatherPanelHeight)
+
+
+        # Update weather panel
+        weatherInfo = hourlyForecast(WEATHER_LOCATION[0], WEATHER_LOCATION[1], wundergroundApiKey)
+        weatherInfoToDisplay = []
+
+        # Only display up to 12 hours, using the following rules.
+        #
+        # 1. Next 3 hours are always displayed
+        # 2. Only even hours are displayed (except when rule 1)
+        # 3. 00:00 - 05:59 are not displayed (except when rule 1)
+        for i, hour in enumerate(weatherInfo):
+            if len(weatherInfoToDisplay) == 12:
+                break
+
+            if i < 3:
+                weatherInfoToDisplay.append(hour)
+            elif hour["time"].hour % 2 == 0 and hour["time"].hour > 5:
+                weatherInfoToDisplay.append(hour)
+
+        self.weatherPanel.setWeather(weatherInfoToDisplay)
+        self.weatherPanel.update()
+
+
+        self.update()
+
+    #
+    # Called once every second. Keeps track of when other panels need
+    # to be updated.
+    #
+    def update(self):
+        self.timestamp += 1
+
+        self.timePanel.setTime(datetime.now())
+        self.timePanel.update()
+
+        root.after(1000, self.update)
 
 
 class TimePanel:
@@ -81,7 +158,7 @@ class TimePanel:
         self.canvas.place(x=self.x, y=self.y)
         self.dateAndTime = datetime.now()
         
-        self.font = fontFit(fontName, "Thu, May 12", (self.width * 0.8, self.height / 2 * 0.8))
+        self.font, self.fontHeight = fontFit(fontName, "Thu, May 12", (self.width * 0.8, self.height / 2 * 0.8))
 
     def setTime(self, time):
         self.dateAndTime = time
@@ -96,45 +173,118 @@ class TimePanel:
         self.canvas.create_text((self.width // 2, self.height * .70), text=string2, fill=fontColor, font=self.font)
 
 
+class WeatherPanel:
+    def __init__(self, x, y, panelWidth, panelHeight):
+        self.width = panelWidth
+        self.height = panelHeight
+        self.x = x
+        self.y = y
+
+        self.canvas = tk.Canvas(root, width=self.width, height=self.height, background=panelBackground)
+        self.canvas.place(x=self.x, y=self.y)
+
+        # Get width of example string w/ 3 digit temperature, and
+        # space alloted for weather icons.  This width will be used
+        # when centering text in panel.
+        exampleString = " 00:00 - 100  F  "
+
+        numLines = 18
+        lineHeightMultiplier = 1.2 # Multiply font height by this to get line height
+        self.font, self.fontHeight = fontFit(fontName, exampleString, (panelWidth * 0.8, panelHeight // (numLines * lineHeightMultiplier)))
+        self.underlinedFont = tkFont.Font(family=fontName, size=-self.fontHeight, underline=1)
+
+        self.lineHeight = self.fontHeight * lineHeightMultiplier
+
+        self.textY = 0
+
+        stringWidth = self.font.measure(exampleString)
+        self.textX = (panelWidth - stringWidth) // 2
+
+        self.iconX = self.textX + self.font.measure(exampleString)
+
+        self.weatherIcons = {}
+        iconSize = self.fontHeight
+
+        def loadAndResizeIcon(iconName, filePath):
+            im = Image.open(filePath);
+            im = im.resize((iconSize, iconSize))
+            self.weatherIcons[iconName] = ImageTk.PhotoImage(im) # Image format compatible w/ tkinter
+    
+        
+        loadAndResizeIcon("Clear", "weather/icons/clear.png")
+        loadAndResizeIcon("Partly Cloudy", "weather/icons/partly_cloudy.png")
+        self.weatherIcons["Mostly Cloudy"] = self.weatherIcons["Partly Cloudy"]
+        loadAndResizeIcon("Overcast", "weather/icons/cloudy.png")
+        loadAndResizeIcon("Chance of Rain", "weather/icons/chance_rain.png")
+        loadAndResizeIcon("Rain", "weather/icons/rain.png")
+        loadAndResizeIcon("Chance of a Thunderstonm", "weather/icons/chance_tstorm.png")
+        loadAndResizeIcon("Thunderstorm", "weather/icons/tstorm.png")
+
+    def setWeather(self, weather):
+        self.weather = weather
+
+    def update(self):
+        self.canvas.create_rectangle((0, 0, self.width, self.height), fill=panelBackground, outline=panelBackground)
+
+        self.textY = 0
+        lastDateLabelDay = None
+        firstHour = True
+
+        for hour in self.weather:
+            time = hour["time"]
+            if time.day != lastDateLabelDay:
+                dayString = months[time.month] + " " + str(time.day)
+                
+                # New lines
+                if lastDateLabelDay is not None:
+                    self.textY += self.lineHeight
+
+                self.textY += self.lineHeight
+
+                dayTextOffset = self.font.measure("  ")
+                textPosition = (max(0, self.textX - dayTextOffset), self.textY)
+                self.canvas.create_text(textPosition, anchor=tk.NW, text=dayString, font=self.underlinedFont, fill=fontColor)
+
+                self.textY += self.lineHeight * 1.2 # just a little extra padding here looks better
+                lastDateLabelDay = time.day
+
+            hourString = " {:02d}:{:02d}".format(time.hour, time.minute) + " - " + "{:>3s}".format(hour["temp"]) + " F "
+
+            hourFontColor = fontColor
+            if firstHour:
+                hourFontColor = "black"
+
+                # draw a yellowish highlight on the current hour
+                highlightColor = '#FFFF99'
+
+                highlightX1 = self.textX
+                highlightY1 = self.textY - ((self.lineHeight - self.fontHeight) / 2)
+                highlightX2 = highlightX1 + self.font.measure(hourString)
+                highlightY2 = highlightY1 + self.lineHeight
+
+                self.canvas.create_rectangle((highlightX1, highlightY1, highlightX2, highlightY2), fill=highlightColor) 
+
+            self.canvas.create_text((self.textX, self.textY), anchor=tk.NW, text=hourString, font=self.font, fill=hourFontColor)
+
+
+            icon = self.weatherIcons[hour["condition"]]
+            self.canvas.create_image((self.iconX, self.textY), anchor=tk.NW, image=icon)
+
+            self.textY += self.lineHeight
+            firstHour = False
+
+def exitTkinter(event):
+    root.destroy()
+    
 
 root = tk.Tk()
+
 root.attributes('-fullscreen', True)
 screenWidth = root.winfo_screenwidth()
 screenHeight = root.winfo_screenheight()
 
-def exitTkinter(event):
-    root.destroy()
-
 root.bind_all('<Escape>', exitTkinter)
 
-
-
-# Split the screen up into these virtual rows and columns. Use these
-# to determine where to position each element. This lets the elements
-# automatically resize on different sized monitors
-numColumns = 30
-numRows = 20
-
-columns = []
-rows = []
-
-for i in range(numColumns):
-    columns.append(int(screenWidth) / numColumns * i)
-
-    for i in range(numRows):
-        rows.append(int(screenHeight) / numRows * i)
-
-
-
-timePanelX1 = columns[1]
-timePanelY1 = rows[1]
-timePanelX2 = columns[13]
-timePanelY2 = rows[6]
-timePanelWidth = timePanelX2 - timePanelX1
-timePanelHeight = timePanelY2 - timePanelY1
-
-timePanel = TimePanel(timePanelX1, timePanelY1, timePanelWidth, timePanelHeight)
-timePanel.update()
+scoreboard = LiveScoreboard()
 
 root.mainloop()
-print("Program complete")
