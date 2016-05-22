@@ -34,17 +34,16 @@ daysOfWeek = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 wundergroundApiKey = "6d48850a7f579fe7"
 
-background = (40, 40, 120) # royal, dark/ish blue
-
+background = (40, 40, 80) # royal, dark/ish blue
 panelBgAlpha = 120
 panelBg = (0, 0, 0)
-alphaFraction = 120 / 256
+alphaFraction = 120 / 256.0
 
-panelBackground = (alphaFraction * panelBg[0] + (1 - alphaFraction) * background[0],
-                   alphaFraction * panelBg[1] + (1 - alphaFraction) * background[1],
-                   alphaFraction * panelBg[2] + (1 - alphaFraction) * background[2])
+panelBackground = (int(alphaFraction * panelBg[0] + (1 - alphaFraction) * background[0]),
+                   int(alphaFraction * panelBg[1] + (1 - alphaFraction) * background[1]),
+                   int(alphaFraction * panelBg[2] + (1 - alphaFraction) * background[2]))
 
-panelBackground = "#{:x}{:x}{:x}".format(panelBackground[0], panelBackground[1], panelBackground[2])
+panelBackground = "#{:02x}{:02x}{:02x}".format(panelBackground[0], panelBackground[1], panelBackground[2])
 
 fontName = "Monospace"
 fontColor = "#BCBCBC"
@@ -173,8 +172,7 @@ class TimePanel:
         self.x = x
         self.y = y
 
-        self.canvas = tk.Canvas(root, width=self.width, height=self.height, background=panelBackground)
-        self.canvas.create_rectangle((0, 0, self.width, self.height), fill=panelBackground, outline=panelBackground)
+        self.canvas = tk.Canvas(root, width=self.width, height=self.height, background=panelBackground, highlightthickness=0)
 
         self.canvas.place(x=self.x, y=self.y)
         self.dateAndTime = datetime.now()
@@ -201,10 +199,8 @@ class WeatherPanel:
         self.x = x
         self.y = y
 
-        self.canvas = tk.Canvas(root, width=self.width, height=self.height, background=panelBackground)
+        self.canvas = tk.Canvas(root, width=self.width, height=self.height, background=panelBackground, highlightthickness=0)
         self.canvas.place(x=self.x, y=self.y)
-
-        self.canvas.create_rectangle((0, 0, self.width, self.height), fill=panelBackground, outline=panelBackground)
 
         # Get width of example string w/ 3 digit temperature, and
         # space alloted for weather icons.  This width will be used
@@ -313,6 +309,10 @@ root = tk.Tk()
 root.attributes('-fullscreen', True)
 screenWidth = root.winfo_screenwidth()
 screenHeight = root.winfo_screenheight()
+
+backgroundString =  "#{:02x}{:02x}{:02x}".format(background[0], background[1], background[2])
+bgCanvas = tk.Canvas(root, width=screenWidth, height=screenHeight, background=backgroundString, highlightthickness=0)
+bgCanvas.place(x=0, y=0)
 
 root.bind_all('<Escape>', exitTkinter)
 
