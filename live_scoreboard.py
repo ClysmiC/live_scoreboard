@@ -34,7 +34,7 @@ daysOfWeek = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 wundergroundApiKey = "6d48850a7f579fe7"
 
-background = (50, 50, 200) # royal, dark/ish blue
+background = (40, 40, 120) # royal, dark/ish blue
 
 panelBgAlpha = 120
 panelBg = (0, 0, 0)
@@ -91,7 +91,6 @@ class LiveScoreboard:
                 rows.append(int(screenHeight) / numRows * i)
 
 
-
         timePanelX1 = columns[1]
         timePanelY1 = rows[1]
         timePanelX2 = columns[13]
@@ -109,52 +108,62 @@ class LiveScoreboard:
         self.timePanel = TimePanel(timePanelX1, timePanelY1, timePanelWidth, timePanelHeight)
         self.weatherPanel = WeatherPanel(weatherPanelX1, weatherPanelY1, weatherPanelWidth, weatherPanelHeight)
 
+        self.lastTime = datetime.now()
         self.weatherQueryMade = False
 
-        self.update()
-
-    #
-    # Called once every second. Keeps track of when other panels need
-    # to be updated.
-    #
-    def update(self):
+    def updatePerpetually(self):
         now = datetime.now()
+
         firstUpdate = (self.updateCount == 0)
 
         # Update the time panel
-        self.timePanel.setTime(now)
-        self.timePanel.update()
+        if firstUpdate or self.lastTime.second != now.second:
+            self.timePanel.setTime(now)
+            self.timePanel.update()
 
         # Update weather panel on the 40 minute mark
         if firstUpdate or now.minute > 40 and not self.weatherQueryMade:
-            weatherInfo = hourlyForecast(WEATHER_LOCATION[0], WEATHER_LOCATION[1], wundergroundApiKey)
-            weatherInfoToDisplay = []
+            try:
+                weatherInfo = hourlyForecast(WEATHER_LOCATION[0], WEATHER_LOCATION[1], wundergroundApiKey)
+                weatherInfoToDisplay = []
 
-            # Only display up to 12 hours, using the following rules.
-            #
-            # 1. Next 3 hours are always displayed
-            # 2. Only even hours are displayed (except when rule 1)
-            # 3. 00:00 - 05:59 are not displayed (except when rule 1)
-            for i, hour in enumerate(weatherInfo):
-                if len(weatherInfoToDisplay) == 12:
-                    break
+                perfTime = datetime.now()
+                print("Weather request successfully made at {:02d}:{:02d}:{:02d}".format(perfTime.hour, perfTime.minute, perfTime.second))
 
-                if i < 3:
-                    weatherInfoToDisplay.append(hour)
-                elif hour["time"].hour % 2 == 0 and hour["time"].hour > 5:
-                    weatherInfoToDisplay.append(hour)
+                # Only display up to 12 hours, using the following rules.
+                #
+                # 1. Next 3 hours are always displayed
+                # 2. Only even hours are displayed (except when rule 1)
+                # 3. 00:00 - 05:59 are not displayed (except when rule 1)
+                for i, hour in enumerate(weatherInfo):
+                    if len(weatherInfoToDisplay) == 12:
+                        break
 
-            self.weatherPanel.setWeather(weatherInfoToDisplay)
-            self.weatherPanel.update()
+                    if i < 3:
+                        weatherInfoToDisplay.append(hour)
+                    elif hour["time"].hour % 2 == 0 and hour["time"].hour > 5:
+                        weatherInfoToDisplay.append(hour)
 
-            weatherQueryMade = True
+                self.weatherPanel.setWeather(weatherInfoToDisplay)
+                self.weatherPanel.update()
+
+                self.weatherQueryMade = True
+            except:
+                self.weatherPanel.showError()
+                perfTime = datetime.now()
+                print("Weather request failed at {:02d}:{:02d}:{:02d} .... error displayed".format(perfTime.hour, perfTime.minute, perfTime.second))
+
+
+        perfTime = datetime.now()
 
         if now.minute < 40:
-            weatherQueryMade = False
-            
+            self.weatherQueryMade = False
 
+        self.lastTime = now
         self.updateCount += 1
-        root.after(1000, self.update)
+
+        perfTime = datetime.now()
+        root.after(200, self.updatePerpetually)
 
 
 class TimePanel:
@@ -165,6 +174,8 @@ class TimePanel:
         self.y = y
 
         self.canvas = tk.Canvas(root, width=self.width, height=self.height, background=panelBackground)
+        self.canvas.create_rectangle((0, 0, self.width, self.height), fill=panelBackground, outline=panelBackground)
+
         self.canvas.place(x=self.x, y=self.y)
         self.dateAndTime = datetime.now()
         
@@ -174,13 +185,13 @@ class TimePanel:
         self.dateAndTime = time
 
     def update(self):
-        self.canvas.create_rectangle((0, 0, self.width, self.height), fill=panelBackground, outline=panelBackground)
-        
+        self.canvas.delete("updates")
+
         string1 = daysOfWeek[self.dateAndTime.weekday()] + ", " + months[self.dateAndTime.month] + " " + str(self.dateAndTime.day)
         string2 = "{:02d}:{:02d}:{:02d}".format(self.dateAndTime.hour, self.dateAndTime.minute, self.dateAndTime.second)
 
-        self.canvas.create_text((self.width // 2, self.height * .30), text=string1, fill=fontColor, font=self.font)
-        self.canvas.create_text((self.width // 2, self.height * .70), text=string2, fill=fontColor, font=self.font)
+        self.canvas.create_text((self.width // 2, self.height * .30), text=string1, fill=fontColor, font=self.font, tags="updates")
+        self.canvas.create_text((self.width // 2, self.height * .70), text=string2, fill=fontColor, font=self.font, tags="updates")
 
 
 class WeatherPanel:
@@ -192,6 +203,8 @@ class WeatherPanel:
 
         self.canvas = tk.Canvas(root, width=self.width, height=self.height, background=panelBackground)
         self.canvas.place(x=self.x, y=self.y)
+
+        self.canvas.create_rectangle((0, 0, self.width, self.height), fill=panelBackground, outline=panelBackground)
 
         # Get width of example string w/ 3 digit temperature, and
         # space alloted for weather icons.  This width will be used
@@ -234,7 +247,7 @@ class WeatherPanel:
         self.weather = weather
 
     def update(self):
-        self.canvas.create_rectangle((0, 0, self.width, self.height), fill=panelBackground, outline=panelBackground)
+        self.canvas.delete("updates")
 
         self.textY = 0
         lastDateLabelDay = None
@@ -253,7 +266,7 @@ class WeatherPanel:
 
                 dayTextOffset = self.font.measure("  ")
                 textPosition = (max(0, self.textX - dayTextOffset), self.textY)
-                self.canvas.create_text(textPosition, anchor=tk.NW, text=dayString, font=self.underlinedFont, fill=fontColor)
+                self.canvas.create_text(textPosition, anchor=tk.NW, text=dayString, font=self.underlinedFont, fill=fontColor, tags="updates")
 
                 self.textY += self.lineHeight * 1.2 # just a little extra padding here looks better
                 lastDateLabelDay = time.day
@@ -272,20 +285,26 @@ class WeatherPanel:
                 highlightX2 = highlightX1 + self.font.measure(hourString)
                 highlightY2 = highlightY1 + self.lineHeight
 
-                self.canvas.create_rectangle((highlightX1, highlightY1, highlightX2, highlightY2), fill=highlightColor) 
+                self.canvas.create_rectangle((highlightX1, highlightY1, highlightX2, highlightY2), fill=highlightColor, tags="updates")
 
-            self.canvas.create_text((self.textX, self.textY), anchor=tk.NW, text=hourString, font=self.font, fill=hourFontColor)
+            self.canvas.create_text((self.textX, self.textY), anchor=tk.NW, text=hourString, font=self.font, fill=hourFontColor, tags="updates")
 
 
             icon = self.weatherIcons[hour["condition"]]
-            self.canvas.create_image((self.iconX, self.textY), anchor=tk.NW, image=icon)
+            self.canvas.create_image((self.iconX, self.textY), anchor=tk.NW, image=icon, tags="updates")
 
             self.textY += self.lineHeight
             firstHour = False
 
+    def showError(self):
+        self.canvas.create_text((self.width//2, self.height//2), anchor=tk.CENTER, font=self.font, fill=fontColor, text="Error retreiving weather info...", tags="updates")
+
 def exitTkinter(event):
     root.destroy()
     
+def startScoreboard():
+    scoreboard = LiveScoreboard()
+    scoreboard.updatePerpetually()
 
 weatherQueryMinuteMark = 40
 
@@ -297,6 +316,6 @@ screenHeight = root.winfo_screenheight()
 
 root.bind_all('<Escape>', exitTkinter)
 
-scoreboard = LiveScoreboard()
+startScoreboard()
 
 root.mainloop()
