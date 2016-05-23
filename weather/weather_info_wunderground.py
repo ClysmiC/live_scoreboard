@@ -28,25 +28,21 @@ def hourlyForecast(cityName, stateInitials, apiKey):
     forecast = []
     urlString = target.replace("[API-KEY]", apiKey).replace("[STATE]", stateInitials).replace("[CITY]", cityName).replace(" ", "_")
 
-    try:
-        jsonString = urlopen(urlString).read().decode("utf-8")
-        weather = json.loads(jsonString)
+    jsonString = urlopen(urlString, timeout=5).read().decode("utf-8")
+    weather = json.loads(jsonString)
 
-        for hour in weather["hourly_forecast"]:
-            thisHour = {}
-            
-            time = hour["FCTTIME"]
-            thisHourDatetime = datetime.datetime(int(time["year"]), int(time["mon_padded"]), int(time["mday_padded"]), int(time["hour"]), int(time["min"]))
-            thisHour["time"] = thisHourDatetime
-
-            thisHour["temp"] = hour["temp"]["english"]
-            thisHour["tempFeelsLike"] = hour["feelslike"]["english"]
-            thisHour["windSpeed"] = hour["wspd"]["english"]
-            thisHour["condition"] = hour["condition"]
-
-            forecast.append(thisHour)
-    except Exception as e:
-        # If we want to handle errors, do it here
-        raise e
+    for hour in weather["hourly_forecast"]:
+        thisHour = {}
+        
+        time = hour["FCTTIME"]
+        thisHourDatetime = datetime.datetime(int(time["year"]), int(time["mon_padded"]), int(time["mday_padded"]), int(time["hour"]), int(time["min"]))
+        thisHour["time"] = thisHourDatetime
+        
+        thisHour["temp"] = hour["temp"]["english"]
+        thisHour["tempFeelsLike"] = hour["feelslike"]["english"]
+        thisHour["windSpeed"] = hour["wspd"]["english"]
+        thisHour["condition"] = hour["condition"]
+        
+        forecast.append(thisHour)
 
     return forecast

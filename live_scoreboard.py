@@ -3,12 +3,15 @@
 from scrape.mlb_scraper_mlb_api import MlbScraperMlbApi
 from weather.weather_info_wunderground import hourlyForecast
 
+from copy import deepcopy
 from datetime import datetime, timedelta
 import time
 import Tkinter as tk
 import tkFont
 
 from PIL import Image, ImageTk
+from urllib2 import URLError
+from socket import timeout as TimeoutError
 
 # Eastern Time
 # RASPBERRY_PI_TIMEZONE = "ET"
@@ -49,8 +52,16 @@ fontName = "Monospace"
 fontColor = "#BCBCBC"
 
 mlb = MlbScraperMlbApi()
+
 mlbTeams = mlb.validTeams
 mlbLogos = {}
+
+#
+# Store unscaled logos in variable so panels have access to the raw
+# images, which they can scale and use.
+#
+for __team in mlbTeams:
+    mlbLogos[__team] = Image.open("scrape/logos/" + __team + ".png")
 
 
 def fontFit(name, stringToFit, dimensionsToFit):
@@ -68,9 +79,42 @@ def fontFit(name, stringToFit, dimensionsToFit):
 
     return font, (fontSize - 1)
 
+def getAdjustedStartTime(game):
+    # Adjust game time to the current timezone
+    rawDateTime = game["startTime"]["time"]
+    hoursToAdjust = timezones.index(RASPBERRY_PI_TIMEZONE) - timezones.index(game["startTime"]["timeZone"])
+    adjustedStartTime = rawDateTime + timedelta(hours=hoursToAdjust)
+    return adjustedStartTime
+
 class LiveScoreboard:
     def __init__(self):
-        self.updateCount = 0
+        # Store the time of when we last requested these things. This
+        # is used to make our requests at a reasonable rate.
+        self.weatherQueryMade = False         # (This hour)
+
+        self.lastGameQueryTime = 0
+        self.lastDivisionQueryTime = 0
+        self.lastSwitchStandingsTime = 0
+
+        self.weatherQueryMinuteMark    = 40   # Query at XX:40
+
+        # Add a few seconds to some of the cooldowns to try to prevent
+        # all the queries from happening in the same second and
+        # lowering the framerate (since queries are synchronous)
+        self.gameNonLiveQueryCooldown    = 302  # Once per 5 minutes
+        self.gameAlmostLiveQueryCooldown = 60   # Once per minute
+        self.gameLiveQueryCooldown       = 20   # Once per 20 seconds
+        self.divisionQueryCooldown       = 907  # Once per 15 minutes
+
+        # Both division and wildcard standings are queried during the
+        # division query.  This timer determines how often the
+        # division displays one before switching to the other.
+        self.switchStandingsTime         = 10
+
+        # Don't update the main preview to today's game until 4am.
+        # That way, if I'm up late (i.e., 1 am) I can still see the
+        # results for what I would consider to be "today"
+        self.showTodaysGameHour = 4
 
         #
         # Split the screen up into these virtual rows and columns. Use these
@@ -90,44 +134,90 @@ class LiveScoreboard:
                 rows.append(int(screenHeight) / numRows * i)
 
 
-        timePanelX1 = columns[1]
-        timePanelY1 = rows[1]
-        timePanelX2 = columns[13]
-        timePanelY2 = rows[6]
-        timePanelWidth = timePanelX2 - timePanelX1
+        timePanelX1     = columns[1]
+        timePanelY1     = rows[1]
+        timePanelX2     = columns[13]
+        timePanelY2     = rows[6]
+        timePanelWidth  = timePanelX2 - timePanelX1
         timePanelHeight = timePanelY2 - timePanelY1
 
-        weatherPanelX1 = columns[1]
-        weatherPanelY1 = rows[7]
-        weatherPanelX2 = columns[9]
-        weatherPanelY2 = rows[19]
-        weatherPanelWidth = weatherPanelX2 - weatherPanelX1
+        weatherPanelX1     = columns[1]
+        weatherPanelY1     = rows[7]
+        weatherPanelX2     = columns[9]
+        weatherPanelY2     = rows[19]
+        weatherPanelWidth  = weatherPanelX2 - weatherPanelX1
         weatherPanelHeight = weatherPanelY2 - weatherPanelY1
+
+        gameScorePanelX1     = columns[14]
+        gameScorePanelY1     = rows[1]
+        gameScorePanelX2     = columns[29]
+        gameScorePanelY2     = rows[6]
+        gameScorePanelWidth  = gameScorePanelX2 - gameScorePanelX1
+        gameScorePanelHeight = gameScorePanelY2 - gameScorePanelY1
+
+        #
+        # There are 2 possible positions for the game preview
+        # panel. When we are previewing today's game, the upper right
+        # panel has the preview. When today's game is finished,
+        # display the preview of tomorrow's game in the bottom middle
+        # panel.
+        #
+        # Since the rendering logic is independent of the panel
+        # width/height, we make each an instance of the
+        # GamePreviewPanel class, and simply store them as panel #1
+        # and panel #2
+        #
+        gamePreviewPanel1X1     = gameScorePanelX1
+        gamePreviewPanel1Y1     = gameScorePanelY1
+        gamePreviewPanel1X2     = gameScorePanelX2
+        gamePreviewPanel1Y2     = gameScorePanelY2
+        gamePreviewPanel1Width  = gameScorePanelWidth  
+        gamePreviewPanel1Height = gameScorePanelHeight
+
+        gamePreviewPanel2X1     = columns[10]
+        gamePreviewPanel2Y1     = rows[14]
+        gamePreviewPanel2X2     = columns[21]
+        gamePreviewPanel2Y2     = rows[19]
+        gamePreviewPanel2Width  = gamePreviewPanel2X2 - gamePreviewPanel2X1 
+        gamePreviewPanel2Height = gamePreviewPanel2Y2 - gamePreviewPanel2Y1
+
+        standingsPanelX1      = columns[22]
+        standingsPanelY1      = rows[14]
+        standingsPanelX2      = columns[29]
+        standingsPanelY2      = rows[19]
+        standingsPanelWidth  = standingsPanelX2 - standingsPanelX1 
+        standingsPanelHeight = standingsPanelY2 - standingsPanelY1
 
         self.timePanel = TimePanel(timePanelX1, timePanelY1, timePanelWidth, timePanelHeight)
         self.weatherPanel = WeatherPanel(weatherPanelX1, weatherPanelY1, weatherPanelWidth, weatherPanelHeight)
+        self.gameScorePanel = GameScorePanel(gameScorePanelX1, gameScorePanelY1, gameScorePanelWidth, gameScorePanelHeight)
+        self.gamePreviewPanel1 = GamePreviewPanel(gamePreviewPanel1X1, gamePreviewPanel1Y1, gamePreviewPanel1Width, gamePreviewPanel1Height)
+        self.gamePreviewPanel2 = GamePreviewPanel(gamePreviewPanel2X1, gamePreviewPanel2Y1, gamePreviewPanel2Width, gamePreviewPanel2Height)
+        self.standingsPanel = StandingsPanel(standingsPanelX1, standingsPanelY1, standingsPanelWidth, standingsPanelHeight)
 
-        self.lastTime = datetime.now()
-        self.weatherQueryMade = False
+        self.game = {}
+        self.game["status"] = "NoGame"
+
+        self.firstUpdate = True
+        self.lastUpdateTime = datetime.now()
 
     def updatePerpetually(self):
         now = datetime.now()
-
-        firstUpdate = (self.updateCount == 0)
+        executionTime = time.time() # NOT wall clock
 
         # Update the time panel
-        if firstUpdate or self.lastTime.second != now.second:
+        if self.firstUpdate or self.lastUpdateTime.second != now.second:
             self.timePanel.setTime(now)
             self.timePanel.update()
 
         # Update weather panel on the 40 minute mark
-        if firstUpdate or now.minute > 40 and not self.weatherQueryMade:
+        if self.firstUpdate or now.minute >= self.weatherQueryMinuteMark and not self.weatherQueryMade:
             try:
                 weatherInfo = hourlyForecast(WEATHER_LOCATION[0], WEATHER_LOCATION[1], wundergroundApiKey)
                 weatherInfoToDisplay = []
 
-                perfTime = datetime.now()
-                print("Weather request successfully made at {:02d}:{:02d}:{:02d}".format(perfTime.hour, perfTime.minute, perfTime.second))
+                currTime = datetime.now()
+                print("Weather request successfully made at {:02d}:{:02d}:{:02d}".format(currTime.hour, currTime.minute, currTime.second))
 
                 # Only display up to 12 hours, using the following rules.
                 #
@@ -147,21 +237,196 @@ class LiveScoreboard:
                 self.weatherPanel.update()
 
                 self.weatherQueryMade = True
-            except:
+            except URLError, TimeoutError:
                 self.weatherPanel.showError()
-                perfTime = datetime.now()
-                print("Weather request failed at {:02d}:{:02d}:{:02d} .... error displayed".format(perfTime.hour, perfTime.minute, perfTime.second))
+                currTime = datetime.now()
+                print("Weather request failed at {:02d}:{:02d}:{:02d} .... error displayed".format(currTime.hour, currTime.minute, currTime.second))
 
-
-        perfTime = datetime.now()
 
         if now.minute < 40:
             self.weatherQueryMade = False
 
-        self.lastTime = now
-        self.updateCount += 1
 
-        perfTime = datetime.now()
+        #
+        # NOTE: potential errors if first update had connection
+        # problems and failed to produce a self.game. Ignoring this
+        # for now since this only happens the first iteration of a
+        # program that runs for days/weeks/months
+        #
+
+
+        gameAlmostStarted = False
+
+        #
+        # Determine if game is "almost started", in which case the
+        # poll rate picks up
+        #
+        if not self.firstUpdate and self.game["status"] == "Pre":
+            timeUntilGame = self.game["adjustedStartTime"] - datetime.now()
+            if timeUntilGame.total_seconds() < self.gameNonLiveQueryCooldown:
+                gameAlmostStarted = True
+
+        
+        #
+        # Poll the game data!
+        #
+        if (self.firstUpdate) or (
+            self.game["status"] == "Live" and executionTime - self.lastGameQueryTime >= self.gameLiveQueryCooldown) or (
+            gameAlmostStarted and executionTime - self.lastGameQueryTime >= self.gameAlmostLiveQueryCooldown) or (
+                executionTime - self.lastGameQueryTime >= self.gameNonLiveQueryCooldown):
+
+            # Don't update to todays game until 4am. If it is
+            # before 4am, show yesterday's game
+            dateOfInterest = deepcopy(now)
+
+            if now.hour < self.showTodaysGameHour:
+                dateOfInterest -= timedelta(days=1)
+
+            try:
+                self.game = mlb.getGameInfo(TEAM_OF_INTEREST, dateOfInterest)
+                currTime = datetime.now()
+                print("Game request successful at {:02d}:{:02d}:{:02d}".format(currTime.hour, currTime.minute, currTime.second))
+
+                # If no game found for today, look ahead up to 10 days
+                # until we find a game
+                lookaheadDays = 0
+                while self.game["status"] == "NoGame" and lookaheadDays < 10:
+                    lookaheadDays += 1
+                    dateOfInterest = dateOfInterest + timedelta(days=1)
+                    self.game = mlb.getGameInfo(TEAM_OF_INTEREST, dateOfInterest)
+
+                    currTime = datetime.now()
+                    print("Lookahead {:d} day(s) request successful at {:02d}:{:02d}:{:02d}".format(lookaheadDays, currTime.hour, currTime.minute, currTime.second)) 
+
+
+                # If game is over, we query for the next game so we
+                # can preview it. The preview has its own try/except
+                # that sets this flag if it fails. We wont update the
+                # last query time if the preview fails so that next
+                # loop it will do the set of queries again.
+                previewFailed = False
+
+                #
+                # Game not yet started
+                #
+                if self.game["status"] == "Pre":
+                    self.game["adjustedStartTime"] = getAdjustedStartTime(self.game)
+
+                    self.gameScorePanel.hide()
+                    self.gamePreviewPanel1.setPreview(self.game)
+                    self.gamePreviewPanel1.update()
+
+                    
+
+                    # NOT YET IMPLEMENTED
+                    # self.firstPitchCountdownPanel.setTargetTime(adjustedStartTime)
+                    # self.firstPitchCountdownPanel.update()
+
+
+                #
+                # Game is live or finished
+                #
+                elif self.game["status"] in ("Live", "Post"):
+                    self.gamePreviewPanel1.hide()
+                    self.gameScorePanel.setScore(self.game)
+                    self.gameScorePanel.update()
+                    # boxScoreOrCountdownSurface = boxScorePanel.update()
+
+
+                    if self.game["status"] == "Live":
+                        #
+                        # Show situation in bottom middle
+                        #
+                        self.gamePreviewPanel2.hide()
+
+                    else:
+                        #
+                        # Preview next game in the bottom middle
+                        #
+
+                        # Look ahead until we find next game
+                        lookaheadDays = 0
+                        lookaheadGame = {}
+                        lookaheadGame["status"] = "NoGame"
+                        dateOfInterest = deepcopy(now)
+
+                        if now.hour < self.showTodaysGameHour:
+                            dateOfInterest -= timedelta(days=1)
+
+                        try:
+                            while lookaheadGame["status"] == "NoGame" and lookaheadDays < 10:
+                                lookaheadDays += 1
+                                dateOfInterest = dateOfInterest + timedelta(days=1)
+                                lookaheadGame = mlb.getGameInfo(TEAM_OF_INTEREST, dateOfInterest)
+
+                            currTime = datetime.now()
+                            print("Lookahead {:d} day(s) request successful at {:02d}:{:02d}:{:02d}".format(lookaheadDays, currTime.hour, currTime.minute, currTime.second)) 
+
+                            lookaheadGame["adjustedStartTime"] = getAdjustedStartTime(lookaheadGame)
+                            self.gamePreviewPanel2.setPreview(lookaheadGame)
+                            self.gamePreviewPanel2.update()
+
+                        except URLError, TimeoutError:
+                            previewFailed = True
+                            # NOT YET IMPLEMENTED
+                            # self.situationPanel.hide() 
+                            self.gamePreviewPanel2.showError()
+                            currTime = datetime.now()
+                            print("Failed lookahead request at {:02d}:{:02d}:{:02d}".format(currTime.hour, currTime.minute, currTime.second))
+
+
+                #
+                # No Game found today or in lookahead loop
+                #
+                else:
+                    # Game preview panel handles NoGame message
+                    self.gameScorePanel.hide()
+                    self.gamePreviewPanel1.setPreview(self.game)
+                    self.gamePreviewPanel1.update()
+
+                #
+                # We know the main lookup didn't fail since this is in
+                # a try/except. Only need to explicitly check if the
+                # preview failed.
+                #
+                if not previewFailed:
+                    self.lastGameQueryTime = time.time()
+
+            except URLError, TimeoutError:
+                self.gameScorePanel.hide()
+                self.gamePreviewPanel1.showError()
+                currTime = datetime.now()
+                print("Failed game or lookahead request at {:02d}:{:02d}:{:02d}".format(currTime.hour, currTime.minute, currTime.second))
+                
+
+        if self.firstUpdate or executionTime - self.lastDivisionQueryTime >= self.divisionQueryCooldown:
+            try:
+                # TODO, request NLC and NLWC and toggle between the
+                # two every 10-20 seconds
+                divisionStandings = mlb.getDivisionStandings("NLC")
+                wcStandings = mlb.getDivisionStandings("NLWC")
+                wcStandings = wcStandings[0:5] # Truncate wildcard to top 5 teams
+
+                self.standingsPanel.setDivisionStandings("NL Central", divisionStandings)
+                self.standingsPanel.setWildcardStandings("NL Wildcard", wcStandings)
+
+                self.standingsPanel.update()
+                currTime = datetime.now()
+                print("Standings requests successful at {:02d}:{:02d}:{:02d}".format(currTime.hour, currTime.minute, currTime.second))
+
+                self.lastDivisionQueryTime = time.time()
+            except URLError, TimeoutError:
+                self.standingsPanel.showError()
+                currTime = datetime.now()
+                print("Failed standings request at {:02d}:{:02d}:{:02d}".format(currTime.hour, currTime.minute, currTime.second))
+                
+
+        if executionTime - self.lastSwitchStandingsTime >= self.switchStandingsTime:
+            self.standingsPanel.switchStandingsDisplay()
+            self.lastSwitchStandingsTime = time.time()
+
+        self.firstUpdate = False
+        self.lastUpdateTime = now
         root.after(200, self.updatePerpetually)
 
 
@@ -225,7 +490,7 @@ class WeatherPanel:
         iconSize = self.fontHeight
 
         def loadAndResizeIcon(iconName, filePath):
-            im = Image.open(filePath);
+            im = Image.open(filePath)
             im = im.resize((iconSize, iconSize))
             self.weatherIcons[iconName] = ImageTk.PhotoImage(im) # Image format compatible w/ tkinter
     
@@ -293,7 +558,296 @@ class WeatherPanel:
             firstHour = False
 
     def showError(self):
-        self.canvas.create_text((self.width//2, self.height//2), anchor=tk.CENTER, font=self.font, fill=fontColor, text="Error retreiving weather info...", tags="updates")
+        self.canvas.delete("updates")
+        self.canvas.create_text((self.width//2, self.height//2), anchor=tk.CENTER, font=self.font, fill=fontColor, text="Error...", tags="updates")
+
+
+class GameScorePanel():
+    def __init__(self, x, y, panelWidth, panelHeight):
+        self.width = panelWidth
+        self.height = panelHeight
+        self.x = x
+        self.y = y
+
+        self.canvas = tk.Canvas(root, width=self.width, height=self.height, background=panelBackground, highlightthickness=0)
+        self.canvas.place(x=self.x, y=self.y)
+        
+        lineHeightMultiplier = 1.2
+
+        # Leading spaces leave room for logo
+        self.numLeadingSpacesForLogo = 4
+        exampleString = " " * self.numLeadingSpacesForLogo +  "STL 10"
+        self.font, fontHeight = fontFit(fontName, exampleString, (panelWidth * .5 * .8, panelHeight * 0.8 / 2 // lineHeightMultiplier))
+        
+        self.lineHeight = fontHeight * 1.2
+
+        # Center 2 lines of text vertically
+        self.lineYStart = (self.height - 2 * self.lineHeight) // 2
+
+        # Center left half strings horizontally
+        self.leftHalfX = (self.width * .5 - self.font.measure(exampleString)) // 2
+
+        # Center right half strings horizontally
+        self.rightHalfX = self.width * .5 + (self.width * .5 - self.font.measure("Top 10")) // 2
+        
+        self.scaledLogos = {}
+        self.logoLinePortion = 0.9 # logo takes up this % of line height
+
+        # Initialize list of MLB team logos
+        for key, logo in mlbLogos.items():
+            logoHeight = logo.size[1]
+            logoWidth = logo.size[0]
+            scale = self.lineHeight * self.logoLinePortion / logoHeight
+
+            self.scaledLogos[key] = ImageTk.PhotoImage(logo.resize((int(scale * logoWidth), int(scale * logoHeight))))
+        
+
+    def setScore(self, game):
+        self.game = game
+
+    def update(self):
+        self.canvas.delete("updates")
+        self.show()
+
+        awayString   = " " * self.numLeadingSpacesForLogo + self.game["away"]["name"] + " {:2s}".format(self.game["away"]["runs"])
+        awayLogo = self.scaledLogos[self.game["away"]["name"]]
+
+        homeString   = " " * self.numLeadingSpacesForLogo + self.game["home"]["name"] + " {:2s}".format(self.game["home"]["runs"])
+        homeLogo = self.scaledLogos[self.game["home"]["name"]]
+
+        if self.game["status"] == "Live":
+            inningString = self.game["inning"]["part"] + " " + self.game["inning"]["number"]
+        else:
+            totalInnings = len(self.game["away"]["scoreByInning"])
+            if totalInnings == 9:
+                inningString = "Final"
+            else:
+                inningString = "Final ({:d})".format(totalInnings)
+
+        lineY = self.lineYStart
+
+        logoSpace = " " * self.numLeadingSpacesForLogo
+        logoSpaceWidth = self.font.measure(logoSpace)
+        awayLogoOffset = (logoSpaceWidth - awayLogo.width()) // 2
+        homeLogoOffset = (logoSpaceWidth - homeLogo.width()) // 2
+        
+        self.canvas.create_image((self.leftHalfX + awayLogoOffset, lineY + self.lineHeight * 0.5 * (1 - self.logoLinePortion)), anchor=tk.NW, image=awayLogo, tags="updates")
+        self.canvas.create_text((self.leftHalfX, lineY), anchor=tk.NW, text=awayString, fill=fontColor, font=self.font, tags="updates")
+        self.canvas.create_text((self.rightHalfX, lineY), anchor=tk.NW, text=inningString, fill=fontColor, font=self.font, tags="updates")
+
+        lineY += self.lineHeight
+
+        self.canvas.create_image((self.leftHalfX + homeLogoOffset, lineY + self.lineHeight * 0.5 * (1 - self.logoLinePortion)), anchor=tk.NW, image=homeLogo, tags="updates")
+        self.canvas.create_text((self.leftHalfX, lineY), anchor=tk.NW, text=homeString, fill=fontColor, font=self.font, tags="updates")
+
+    def hide(self):
+        #
+        # Cheap trick to hide canvas. Apparently setting state to
+        # "hidden" is invalid despite docs saying you can do so...
+        #
+        self.canvas.place(x=-self.width - 100, y=-self.height - 100)
+
+    def show(self):
+        self.canvas.place(x=self.x, y=self.y)
+
+class GamePreviewPanel:
+    def __init__(self, x, y, panelWidth, panelHeight):
+        self.width = panelWidth
+        self.height = panelHeight
+        self.x = x
+        self.y = y
+
+        self.canvas = tk.Canvas(root, width=self.width, height=self.height, background=panelBackground, highlightthickness=0)
+        self.canvas.place(x=self.x, y=self.y)
+
+        lineHeightMultiplier = 1.2
+
+        exampleTopString = "CHC @ STL"
+        exampleBotString = "May 12, 15:28"
+        self.font, fontHeight = fontFit(fontName, exampleBotString, (self.width * .5, self.height * 0.8 / 2 // lineHeightMultiplier))
+
+        self.lineHeight = fontHeight * lineHeightMultiplier
+
+        # Center 2 lines of text vertically
+        self.lineYStart = (self.height - 2 * self.lineHeight) // 2
+
+        # Center top line horizontally
+        self.topX = (self.width - self.font.measure(exampleTopString)) // 2
+        
+        # Center bot line horizontally
+        self.botX = (self.width - self.font.measure(exampleBotString)) // 2
+        
+        self.scaledLogos = {}
+
+        self.awayLogoRegion = Rect(0, 0, self.width * .25, self.height)
+        self.homeLogoRegion = Rect(self.width * .75, 0, self.width * .25, self.height)
+        
+        # Initialize list of MLB team logos
+        for key, logo in mlbLogos.items():
+            logoHeight = logo.size[1]
+            logoWidth = logo.size[0]
+            scale = min(self.awayLogoRegion.height * 0.8 / logoHeight,
+                        self.awayLogoRegion.width * 0.8 / logoWidth)
+
+            self.scaledLogos[key] = ImageTk.PhotoImage(logo.resize((int(scale * logoWidth), int(scale * logoHeight))))            
+
+    def setPreview(self, game):
+        self.game = game
+
+    def update(self):
+        self.canvas.delete("updates")
+        self.show()
+
+        if self.game["status"] == "Pre":
+            topString = "{:3s} @ {:3s}".format(self.game["away"]["name"], self.game["home"]["name"])
+
+            ast = self.game["adjustedStartTime"]
+            
+            botString = "{:s} {:d}, {:02d}:{:02d}".format(months[ast.month], ast.day, ast.hour, ast.minute)
+
+            awayLogo = self.scaledLogos[self.game["away"]["name"]]
+            homeLogo = self.scaledLogos[self.game["home"]["name"]]
+
+            # Center logo
+            awayLogoXOffset = (self.awayLogoRegion.width - awayLogo.width()) // 2
+            awayLogoYOffset = (self.awayLogoRegion.height - awayLogo.height()) // 2
+            
+            homeLogoXOffset = (self.homeLogoRegion.width - homeLogo.width()) // 2
+            homeLogoYOffset = (self.homeLogoRegion.height - homeLogo.height()) // 2
+
+            lineY = self.lineYStart
+
+            self.canvas.create_image((self.awayLogoRegion.left + awayLogoXOffset, self.awayLogoRegion.top + awayLogoYOffset), anchor=tk.NW, image=awayLogo, tags="updates")
+            self.canvas.create_image((self.homeLogoRegion.left + homeLogoXOffset, self.homeLogoRegion.top + homeLogoYOffset), anchor=tk.NW, image=homeLogo, tags="updates")
+            
+            self.canvas.create_text((self.topX, lineY), anchor=tk.NW, text=topString, font=self.font, fill=fontColor, tags="updates")
+
+            lineY += self.lineHeight
+
+            self.canvas.create_text((self.botX, lineY), anchor=tk.NW, text=botString, font=self.font, fill=fontColor, tags="updates")
+        else:
+            self.canvas.create_text((self.width // 2, self.height //2), anchor=tk.CENTER, text="No games found...", font=self.font, fill=fontColor, tags="updates")
+
+    def showError(self):
+        self.canvas.delete("updates")
+        self.canvas.create_text((self.width//2, self.height//2), anchor=tk.CENTER, font=self.font, fill=fontColor, text="Error...", tags="updates")
+
+    def hide(self):
+        #
+        # Cheap trick to hide canvas. Apparently setting state to
+        # "hidden" is invalid despite docs saying you can do so...
+        #
+        self.canvas.place(x=-self.width - 100, y=-self.height - 100)
+
+    def show(self):
+        self.canvas.place(x=self.x, y=self.y)
+
+class StandingsPanel:
+    def __init__(self, x, y, panelWidth, panelHeight):
+        self.width = panelWidth
+        self.height = panelHeight
+        self.x = x
+        self.y = y
+
+        self.canvas = tk.Canvas(root, width=self.width, height=self.height, background=panelBackground, highlightthickness=0)
+        self.canvas.place(x=self.x, y=self.y)
+
+        # Extra space before name for logo
+        self.logoString = "    "
+        exampleString = "1 " + self.logoString + " STL  100   62  -10.0"
+
+        numLines = 9 # 1 for division name, 5 for teams, 2 for padding
+        lineHeightMultiplier = 1.2 # Multiply font height by this to get line height
+
+        self.font, self.fontHeight = fontFit(fontName, exampleString, (self.width * 0.9, self.height // (numLines * lineHeightMultiplier)))
+        self.underlinedFont = tkFont.Font(family=fontName, size=-self.fontHeight, underline=1)
+
+        self.lineHeight = self.fontHeight * lineHeightMultiplier
+
+        # Center horizontally
+        self.xStart = (self.width - self.font.measure(exampleString)) // 2
+
+        logoRegionWidth = self.font.measure(self.logoString)
+        logoRegionHeight = self.fontHeight
+
+        self.scaledLogos = {}
+
+        # Initialize list of MLB team logos
+        for key, logo in mlbLogos.items():
+            logoHeight = logo.size[1]
+            logoWidth = logo.size[0]
+            scale = min(logoRegionHeight / float(logoHeight),
+                        logoRegionWidth / float(logoWidth))
+
+            self.scaledLogos[key] = ImageTk.PhotoImage(logo.resize((int(scale * logoWidth), int(scale * logoHeight))))                    
+
+        self.displayingWildcard = False
+        self.initiallySet = False
+
+    def setDivisionStandings(self, divisionName, standings):
+        self.divisionName = divisionName
+        self.divisionStandings = standings
+
+        if not self.initiallySet:
+            self.titleString = divisionName
+            self.standings = standings
+            self.initiallySet = True
+
+    def setWildcardStandings(self, wildcardName, standings):
+        self.wildcardName = wildcardName
+        self.wildcardStandings = standings
+
+        if not self.initiallySet:
+            self.titleString = wildcardName
+            self.standings = standings
+            self.initiallySet = True
+
+    #
+    # Switch between showing division and WC standings
+    #
+    def switchStandingsDisplay(self):
+        self.displayingWildcard = not self.displayingWildcard
+
+        if self.displayingWildcard:
+            self.titleString = self.wildcardName
+            self.standings = self.wildcardStandings
+        else:
+            self.titleString = self.divisionName
+            self.standings = self.divisionStandings
+
+        self.update()
+
+    def update(self):
+        self.canvas.delete("updates")
+        
+        lineY = self.lineHeight # start 1 line in to have some padding on top        
+        divisionX = (self.width - self.font.measure(self.divisionName)) // 2
+
+        self.canvas.create_text((divisionX, lineY), anchor=tk.NW, text=self.titleString, font=self.underlinedFont, fill=fontColor, tags="updates")
+
+        # Add a little spacing. No worries, this is why we left room for an extra line at the bottom
+        lineY += 1.3 * self.lineHeight
+
+        headerString  = "# " + self.logoString + "Team    W    L    GB"
+
+        self.canvas.create_text((self.xStart, lineY), anchor=tk.NW, text=headerString, font=self.underlinedFont, fill=fontColor, tags="updates")
+        lineY += 0.2 * self.lineHeight 
+
+        for i, team in enumerate(self.standings):
+            lineY += self.lineHeight
+            
+            teamString = "{:d} {:s} {:s}  {:3d}  {:3d}  {:4.1f}".format(i+1, self.logoString, team["name"], team["wins"], team["losses"], team["gb"])
+            
+            self.canvas.create_text((self.xStart, lineY), anchor=tk.NW, text=teamString, font=self.font, fill=fontColor, tags="updates")
+
+            logoXMiddle = self.xStart + self.font.measure("1 ") + (self.font.measure(self.logoString) // 2)
+            self.canvas.create_image((logoXMiddle, lineY + self.lineHeight // 2), anchor=tk.CENTER, image=self.scaledLogos[team["name"]], tags="updates")
+            
+
+    def showError(self):
+        self.canvas.delete("updates")
+        self.canvas.create_text((self.width//2, self.height//2), anchor=tk.CENTER, font=self.font, fill=fontColor, text="Error...", tags="updates")
+        
 
 def exitTkinter(event):
     root.destroy()
@@ -302,7 +856,13 @@ def startScoreboard():
     scoreboard = LiveScoreboard()
     scoreboard.updatePerpetually()
 
-weatherQueryMinuteMark = 40
+
+class Rect():
+    def __init__(self, left, top, width, height):
+        self.left = left
+        self.top = top
+        self.width = width
+        self.height = height
 
 root = tk.Tk()
 

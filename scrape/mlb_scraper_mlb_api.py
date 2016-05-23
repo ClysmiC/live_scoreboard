@@ -33,10 +33,7 @@ class MlbScraperMlbApi():
 
         dateString = "year_" +  str(date.year).zfill(4) + "/month_" + str(date.month).zfill(2) + "/day_" + str(date.day).zfill(2) + "/master_scoreboard.json"
 
-        try:
-            jsonString = urlopen(self.gameScrapeTarget + dateString).read().decode("utf-8")
-        except:
-            return -1
+        jsonString = urlopen(self.gameScrapeTarget + dateString, timeout=5).read().decode("utf-8")
         
         scoreboard = json.loads(jsonString)
 
@@ -288,10 +285,7 @@ class MlbScraperMlbApi():
         if team is None:
             raise ValueError("Invalid team name.")
 
-        try:
-            html = urlopen(self.standingsScrapeTarget)
-        except:
-            return -1
+        html = urlopen(self.standingsScrapeTarget, timeout=5)
         
         soup = BeautifulSoup(html, "lxml")
 
@@ -335,10 +329,7 @@ class MlbScraperMlbApi():
             else:
                 division = "East"
 
-        try:
-            html = urlopen(target)
-        except:
-            return -1
+        html = urlopen(target, timeout=5)
         
         soup = BeautifulSoup(html, "lxml")
 
