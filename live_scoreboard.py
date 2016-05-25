@@ -79,12 +79,14 @@ def fontFit(name, stringToFit, dimensionsToFit):
 
     return font, (fontSize - 1)
 
+
 def getAdjustedStartTime(game):
     # Adjust game time to the current timezone
     rawDateTime = game["startTime"]["time"]
     hoursToAdjust = timezones.index(RASPBERRY_PI_TIMEZONE) - timezones.index(game["startTime"]["timeZone"])
     adjustedStartTime = rawDateTime + timedelta(hours=hoursToAdjust)
     return adjustedStartTime
+
 
 class LiveScoreboard:
     def __init__(self):
@@ -109,7 +111,7 @@ class LiveScoreboard:
         # Both division and wildcard standings are queried during the
         # division query.  This timer determines how often the
         # division displays one before switching to the other.
-        self.switchStandingsTime         = 10
+        self.switchStandingsTime         = 15
 
         # Don't update the main preview to today's game until 4am.
         # That way, if I'm up late (i.e., 1 am) I can still see the
@@ -181,18 +183,43 @@ class LiveScoreboard:
         gamePreviewPanel2Width  = gamePreviewPanel2X2 - gamePreviewPanel2X1 
         gamePreviewPanel2Height = gamePreviewPanel2Y2 - gamePreviewPanel2Y1
 
+        boxScorePanelX1      = columns[10]
+        boxScorePanelY1      = rows[7] 
+        boxScorePanelX2      = columns[29]
+        boxScorePanelY2      = rows[13]
+        boxScorePanelWidth   = boxScorePanelX2 - boxScorePanelX1 
+        boxScorePanelHeight  = boxScorePanelY2 - boxScorePanelY1
+        
+        firstPitchCountdownPanelX1      = boxScorePanelX1
+        firstPitchCountdownPanelY1      = boxScorePanelY1
+        firstPitchCountdownPanelX2      = boxScorePanelX2
+        firstPitchCountdownPanelY2      = boxScorePanelY2
+        firstPitchCountdownPanelWidth   = firstPitchCountdownPanelX2 - firstPitchCountdownPanelX1 
+        firstPitchCountdownPanelHeight  = firstPitchCountdownPanelY2 - firstPitchCountdownPanelY1
+
+        pitcherPreviewPanelX1      = gamePreviewPanel2X1
+        pitcherPreviewPanelY1      = gamePreviewPanel2Y1
+        pitcherPreviewPanelX2      = gamePreviewPanel2X2
+        pitcherPreviewPanelY2      = gamePreviewPanel2Y2
+        pitcherPreviewPanelWidth   = pitcherPreviewPanelX2 - pitcherPreviewPanelX1 
+        pitcherPreviewPanelHeight  = pitcherPreviewPanelY2 - pitcherPreviewPanelY1
+
         standingsPanelX1      = columns[22]
         standingsPanelY1      = rows[14]
         standingsPanelX2      = columns[29]
         standingsPanelY2      = rows[19]
-        standingsPanelWidth  = standingsPanelX2 - standingsPanelX1 
-        standingsPanelHeight = standingsPanelY2 - standingsPanelY1
+        standingsPanelWidth   = standingsPanelX2 - standingsPanelX1 
+        standingsPanelHeight  = standingsPanelY2 - standingsPanelY1
+
 
         self.timePanel = TimePanel(timePanelX1, timePanelY1, timePanelWidth, timePanelHeight)
         self.weatherPanel = WeatherPanel(weatherPanelX1, weatherPanelY1, weatherPanelWidth, weatherPanelHeight)
         self.gameScorePanel = GameScorePanel(gameScorePanelX1, gameScorePanelY1, gameScorePanelWidth, gameScorePanelHeight)
         self.gamePreviewPanel1 = GamePreviewPanel(gamePreviewPanel1X1, gamePreviewPanel1Y1, gamePreviewPanel1Width, gamePreviewPanel1Height)
         self.gamePreviewPanel2 = GamePreviewPanel(gamePreviewPanel2X1, gamePreviewPanel2Y1, gamePreviewPanel2Width, gamePreviewPanel2Height)
+        # self.boxScorePanel = BoxScorePanel(boxScorePanelX1, boxScorePanelY1, boxScorePanelWidth, boxScorePanelHeight)
+        self.firstPitchCountdownPanel = FirstPitchCountdownPanel(firstPitchCountdownPanelX1, firstPitchCountdownPanelY1, firstPitchCountdownPanelWidth, firstPitchCountdownPanelHeight)
+        self.pitcherPreviewPanel = PitcherPreviewPanel(pitcherPreviewPanelX1, pitcherPreviewPanelY1, pitcherPreviewPanelWidth, pitcherPreviewPanelHeight)
         self.standingsPanel = StandingsPanel(standingsPanelX1, standingsPanelY1, standingsPanelWidth, standingsPanelHeight)
 
         self.game = {}
@@ -205,15 +232,18 @@ class LiveScoreboard:
         now = datetime.now()
         executionTime = time.time() # NOT wall clock
 
-        # Update the time panel
-        if self.firstUpdate or self.lastUpdateTime.second != now.second:
-            self.timePanel.setTime(now)
-            self.timePanel.update()
-
         # Update weather panel on the 40 minute mark
         if self.firstUpdate or now.minute >= self.weatherQueryMinuteMark and not self.weatherQueryMade:
+
+            success = False
+
             try:
                 weatherInfo = hourlyForecast(WEATHER_LOCATION[0], WEATHER_LOCATION[1], wundergroundApiKey)
+                success = True
+            except:
+                success = False
+
+            if success:
                 weatherInfoToDisplay = []
 
                 currTime = datetime.now()
@@ -237,7 +267,7 @@ class LiveScoreboard:
                 self.weatherPanel.update()
 
                 self.weatherQueryMade = True
-            except URLError, TimeoutError:
+            else:
                 self.weatherPanel.showError()
                 currTime = datetime.now()
                 print("Weather request failed at {:02d}:{:02d}:{:02d} .... error displayed".format(currTime.hour, currTime.minute, currTime.second))
@@ -282,129 +312,167 @@ class LiveScoreboard:
             if now.hour < self.showTodaysGameHour:
                 dateOfInterest -= timedelta(days=1)
 
+            success = False
             try:
                 self.game = mlb.getGameInfo(TEAM_OF_INTEREST, dateOfInterest)
+                success = True
+            except:
+                success = False
+
+            if success:
                 currTime = datetime.now()
                 print("Game request successful at {:02d}:{:02d}:{:02d}".format(currTime.hour, currTime.minute, currTime.second))
 
-                # If no game found for today, look ahead up to 10 days
-                # until we find a game
-                lookaheadDays = 0
-                while self.game["status"] == "NoGame" and lookaheadDays < 10:
-                    lookaheadDays += 1
-                    dateOfInterest = dateOfInterest + timedelta(days=1)
-                    self.game = mlb.getGameInfo(TEAM_OF_INTEREST, dateOfInterest)
-
-                    currTime = datetime.now()
-                    print("Lookahead {:d} day(s) request successful at {:02d}:{:02d}:{:02d}".format(lookaheadDays, currTime.hour, currTime.minute, currTime.second)) 
-
-
-                # If game is over, we query for the next game so we
-                # can preview it. The preview has its own try/except
-                # that sets this flag if it fails. We wont update the
-                # last query time if the preview fails so that next
-                # loop it will do the set of queries again.
+                #
+                # Serves double duty. Holds the success of either the
+                # preview of the upcoming game (today is a NoGame), or
+                # the success of the next game preview when today's
+                # game is Post. In both cases, failure means re-do the
+                # query next time we get the chance.
+                #
                 previewFailed = False
 
-                #
-                # Game not yet started
-                #
-                if self.game["status"] == "Pre":
-                    self.game["adjustedStartTime"] = getAdjustedStartTime(self.game)
 
-                    self.gameScorePanel.hide()
-                    self.gamePreviewPanel1.setPreview(self.game)
-                    self.gamePreviewPanel1.update()
+                # If no game found for today, look ahead up to 10 days
+                # until we find a game
 
+                try:
+                    lookaheadDays = 0
+                    while self.game["status"] == "NoGame" and lookaheadDays < 10:
+                        lookaheadDays += 1
+                        dateOfInterest = dateOfInterest + timedelta(days=1)
+                        self.game = mlb.getGameInfo(TEAM_OF_INTEREST, dateOfInterest)
+
+                        currTime = datetime.now()
+                        print("Lookahead {:d} day(s) request successful at {:02d}:{:02d}:{:02d}".format(lookaheadDays, currTime.hour, currTime.minute, currTime.second)) 
                     
+                    previewFailed = False
+                except:
+                    previewFailed = True
 
-                    # NOT YET IMPLEMENTED
-                    # self.firstPitchCountdownPanel.setTargetTime(adjustedStartTime)
-                    # self.firstPitchCountdownPanel.update()
-
-
-                #
-                # Game is live or finished
-                #
-                elif self.game["status"] in ("Live", "Post"):
-                    self.gamePreviewPanel1.hide()
-                    self.gameScorePanel.setScore(self.game)
-                    self.gameScorePanel.update()
-                    # boxScoreOrCountdownSurface = boxScorePanel.update()
-
-
-                    if self.game["status"] == "Live":
-                        #
-                        # Show situation in bottom middle
-                        #
-                        self.gamePreviewPanel2.hide()
-
-                    else:
-                        #
-                        # Preview next game in the bottom middle
-                        #
-
-                        # Look ahead until we find next game
-                        lookaheadDays = 0
-                        lookaheadGame = {}
-                        lookaheadGame["status"] = "NoGame"
-                        dateOfInterest = deepcopy(now)
-
-                        if now.hour < self.showTodaysGameHour:
-                            dateOfInterest -= timedelta(days=1)
-
-                        try:
-                            while lookaheadGame["status"] == "NoGame" and lookaheadDays < 10:
-                                lookaheadDays += 1
-                                dateOfInterest = dateOfInterest + timedelta(days=1)
-                                lookaheadGame = mlb.getGameInfo(TEAM_OF_INTEREST, dateOfInterest)
-
-                            currTime = datetime.now()
-                            print("Lookahead {:d} day(s) request successful at {:02d}:{:02d}:{:02d}".format(lookaheadDays, currTime.hour, currTime.minute, currTime.second)) 
-
-                            lookaheadGame["adjustedStartTime"] = getAdjustedStartTime(lookaheadGame)
-                            self.gamePreviewPanel2.setPreview(lookaheadGame)
-                            self.gamePreviewPanel2.update()
-
-                        except URLError, TimeoutError:
-                            previewFailed = True
-                            # NOT YET IMPLEMENTED
-                            # self.situationPanel.hide() 
-                            self.gamePreviewPanel2.showError()
-                            currTime = datetime.now()
-                            print("Failed lookahead request at {:02d}:{:02d}:{:02d}".format(currTime.hour, currTime.minute, currTime.second))
-
-
-                #
-                # No Game found today or in lookahead loop
-                #
-                else:
-                    # Game preview panel handles NoGame message
-                    self.gameScorePanel.hide()
-                    self.gamePreviewPanel1.setPreview(self.game)
-                    self.gamePreviewPanel1.update()
-
-                #
-                # We know the main lookup didn't fail since this is in
-                # a try/except. Only need to explicitly check if the
-                # preview failed.
-                #
                 if not previewFailed:
-                    self.lastGameQueryTime = time.time()
 
-            except URLError, TimeoutError:
+                    #
+                    # Game not yet started
+                    #
+                    if self.game["status"] == "Pre":
+                        self.game["adjustedStartTime"] = getAdjustedStartTime(self.game)
+
+                        self.gameScorePanel.hide()
+                        self.gamePreviewPanel1.setPreview(self.game)
+                        self.gamePreviewPanel1.update()
+
+                        self.firstPitchCountdownPanel.setTargetTime(self.game["adjustedStartTime"])
+                        self.firstPitchCountdownPanel.update()
+
+                        self.pitcherPreviewPanel.setPitchers(self.game)
+                        self.pitcherPreviewPanel.update()
+
+
+                    #
+                    # Game is live or finished
+                    #
+                    elif self.game["status"] in ("Live", "Post"):
+                        self.gamePreviewPanel1.hide()
+                        self.gameScorePanel.setScore(self.game)
+                        self.gameScorePanel.update()
+
+
+                        if self.game["status"] == "Live":
+                            #
+                            # Show situation in bottom middle
+                            #
+                            self.gamePreviewPanel2.hide()
+
+                        else:
+                            #
+                            # Preview next game in the bottom middle
+                            #
+
+                            # Look ahead until we find next game
+                            lookaheadDays = 0
+                            lookaheadGame = {}
+                            lookaheadGame["status"] = "NoGame"
+                            dateOfInterest = deepcopy(now)
+
+                            if now.hour < self.showTodaysGameHour:
+                                dateOfInterest -= timedelta(days=1)
+
+                            try:
+                                while lookaheadGame["status"] == "NoGame" and lookaheadDays < 10:
+                                    lookaheadDays += 1
+                                    dateOfInterest = dateOfInterest + timedelta(days=1)
+                                    lookaheadGame = mlb.getGameInfo(TEAM_OF_INTEREST, dateOfInterest)
+                                success = True
+                            except:
+                                success = False
+
+                            if success:
+                                currTime = datetime.now()
+                                print("Lookahead {:d} day(s) request successful at {:02d}:{:02d}:{:02d}".format(lookaheadDays, currTime.hour, currTime.minute, currTime.second)) 
+
+                                lookaheadGame["adjustedStartTime"] = getAdjustedStartTime(lookaheadGame)
+
+                                self.situationPanel.hide()
+                                self.pitcherPreviewPanel.hide()
+                                self.gamePreviewPanel2.setPreview(lookaheadGame)
+                                self.gamePreviewPanel2.update()
+
+                            else:
+                                previewFailed = True
+                                # NOT YET IMPLEMENTED
+                                # self.situationPanel.hide()
+                                self.pitcherPreviewPanel.hide()
+                                self.gamePreviewPanel2.showError()
+                                currTime = datetime.now()
+                                print("Failed lookahead request at {:02d}:{:02d}:{:02d}".format(currTime.hour, currTime.minute, currTime.second))
+
+
+                    #
+                    # No Game found today or in lookahead loop
+                    #
+                    else:
+                        # Game preview panel handles NoGame message
+                        self.gameScorePanel.hide()
+                        self.gamePreviewPanel1.setPreview(self.game)
+                        self.gamePreviewPanel1.update()
+
+                    #
+                    # We know the main lookup didn't fail since we made it
+                    # this far. But we want to make sure the preview
+                    # lookup completed if today's game is over. If that
+                    # one failed, we will not mark the time so that it
+                    # will be re-queried next iteration. Only need to
+                    # explicitly check if the preview failed.
+                    #
+                    if not previewFailed:
+                        self.lastGameQueryTime = time.time()
+
+            else:
                 self.gameScorePanel.hide()
                 self.gamePreviewPanel1.showError()
+
+                # self.boxScorePanel.hide()
+                self.firstPitchCountdownPanel.showError()
+
                 currTime = datetime.now()
                 print("Failed game or lookahead request at {:02d}:{:02d}:{:02d}".format(currTime.hour, currTime.minute, currTime.second))
                 
 
         if self.firstUpdate or executionTime - self.lastDivisionQueryTime >= self.divisionQueryCooldown:
+            
+            success = False
+
             try:
                 # TODO, request NLC and NLWC and toggle between the
                 # two every 10-20 seconds
                 divisionStandings = mlb.getDivisionStandings("NLC")
                 wcStandings = mlb.getDivisionStandings("NLWC")
+                success = True
+            except:
+                success = False
+
+            if success:
                 wcStandings = wcStandings[0:5] # Truncate wildcard to top 5 teams
 
                 self.standingsPanel.setDivisionStandings("NL Central", divisionStandings)
@@ -415,7 +483,7 @@ class LiveScoreboard:
                 print("Standings requests successful at {:02d}:{:02d}:{:02d}".format(currTime.hour, currTime.minute, currTime.second))
 
                 self.lastDivisionQueryTime = time.time()
-            except URLError, TimeoutError:
+            else:
                 self.standingsPanel.showError()
                 currTime = datetime.now()
                 print("Failed standings request at {:02d}:{:02d}:{:02d}".format(currTime.hour, currTime.minute, currTime.second))
@@ -424,6 +492,15 @@ class LiveScoreboard:
         if executionTime - self.lastSwitchStandingsTime >= self.switchStandingsTime:
             self.standingsPanel.switchStandingsDisplay()
             self.lastSwitchStandingsTime = time.time()
+
+        # Update the time panel
+        if self.firstUpdate or self.lastUpdateTime.second != now.second:
+            self.timePanel.setTime(now)
+            self.timePanel.update()
+
+            # Update the first pitch countdown panel
+            if self.game is not None and self.game["status"] == "Pre":
+                self.firstPitchCountdownPanel.update()
 
         self.firstUpdate = False
         self.lastUpdateTime = now
@@ -577,9 +654,9 @@ class GameScorePanel():
         # Leading spaces leave room for logo
         self.numLeadingSpacesForLogo = 4
         exampleString = " " * self.numLeadingSpacesForLogo +  "STL 10"
-        self.font, fontHeight = fontFit(fontName, exampleString, (panelWidth * .5 * .8, panelHeight * 0.8 / 2 // lineHeightMultiplier))
+        self.font, self.fontHeight = fontFit(fontName, exampleString, (panelWidth * .5 * .8, panelHeight * 0.8 / 2 // lineHeightMultiplier))
         
-        self.lineHeight = fontHeight * 1.2
+        self.lineHeight = self.fontHeight * 1.2
 
         # Center 2 lines of text vertically
         self.lineYStart = (self.height - 2 * self.lineHeight) // 2
@@ -664,9 +741,9 @@ class GamePreviewPanel:
 
         exampleTopString = "CHC @ STL"
         exampleBotString = "May 12, 15:28"
-        self.font, fontHeight = fontFit(fontName, exampleBotString, (self.width * .5, self.height * 0.8 / 2 // lineHeightMultiplier))
+        self.font, self.fontHeight = fontFit(fontName, exampleBotString, (self.width * .5, self.height * 0.8 / 2 // lineHeightMultiplier))
 
-        self.lineHeight = fontHeight * lineHeightMultiplier
+        self.lineHeight = self.fontHeight * lineHeightMultiplier
 
         # Center 2 lines of text vertically
         self.lineYStart = (self.height - 2 * self.lineHeight) // 2
@@ -848,6 +925,130 @@ class StandingsPanel:
         self.canvas.delete("updates")
         self.canvas.create_text((self.width//2, self.height//2), anchor=tk.CENTER, font=self.font, fill=fontColor, text="Error...", tags="updates")
         
+
+class FirstPitchCountdownPanel:
+    def __init__(self, x, y, panelWidth, panelHeight):
+        self.width = panelWidth
+        self.height = panelHeight
+        self.x = x
+        self.y = y
+
+        self.canvas = tk.Canvas(root, width=self.width, height=self.height, background=panelBackground, highlightthickness=0)
+        self.canvas.place(x=self.x, y=self.y)
+
+        self.topString   = "First pitch in..."
+        exampleBotString = "0:00:00:00"
+
+        lineHeightMultiplier = 1.2
+        self.font, self.fontHeight = fontFit(fontName, self.topString, (panelWidth * .7, panelHeight * 0.8 / 2 // lineHeightMultiplier))
+
+        self.lineHeight = self.fontHeight * lineHeightMultiplier
+
+        self.lineYStart = (panelHeight - 2 * self.lineHeight) // 2
+        self.topX = (panelWidth - self.font.measure(self.topString)) // 2
+        self.botX = (panelWidth - self.font.measure(exampleBotString)) // 2
+
+    def setTargetTime(self, targetTime):
+        self.targetTime = targetTime
+
+    def update(self):
+        self.canvas.delete("updates")
+        self.show()
+
+        lineY = self.lineYStart
+        now = datetime.now()
+        difference = self.targetTime - now
+
+        days = difference.days
+        hours = difference.seconds // 3600
+        mins = (difference.seconds % 3600) // 60
+        seconds = (difference.seconds % 3600 % 60) + 1 # Add 1 to "round up" the milliseconds, to make the clock + this time equal start time
+
+        botString = "{:d}:{:02d}:{:02d}:{:02d}".format(days, hours, mins, seconds)
+
+        self.canvas.create_text((self.topX, lineY), anchor=tk.NW, text=self.topString, font=self.font, fill=fontColor, tags="updates")
+        lineY += self.lineHeight
+
+        self.canvas.create_text((self.botX, lineY), anchor=tk.NW, text=botString, font=self.font, fill=fontColor, tags="updates")
+
+
+    def showError(self):
+        self.canvas.delete("updates")
+        self.canvas.create_text((self.width//2, self.height//2), anchor=tk.CENTER, font=self.font, fill=fontColor, text="Error...", tags="updates")
+
+    def hide(self):
+        #
+        # Cheap trick to hide canvas. Apparently setting state to
+        # "hidden" is invalid despite docs saying you can do so...
+        #
+        self.canvas.place(x=-self.width - 100, y=-self.height - 100)
+
+    def show(self):
+        self.canvas.place(x=self.x, y=self.y)
+
+class PitcherPreviewPanel:
+    def __init__(self, x, y, panelWidth, panelHeight):
+        self.width = panelWidth
+        self.height = panelHeight
+        self.x = x
+        self.y = y
+
+        self.canvas = tk.Canvas(root, width=self.width, height=self.height, background=panelBackground, highlightthickness=0)
+        self.canvas.place(x=self.x, y=self.y)
+
+    def setPitchers(self, game):
+        self.game = game
+
+    def update(self):
+        self.canvas.delete("updates")
+        self.show()
+
+        #
+        # Calculate font size in the update method since it will
+        # depend on the pitcher's name length.
+        #
+        awayPitcherString = "{:3s}: {:s} ({:s}-{:s}, {:s})".format(
+            self.game["away"]["name"],
+            self.game["away"]["starter"]["name"],
+            self.game["away"]["starter"]["wins"],
+            self.game["away"]["starter"]["losses"],
+            self.game["away"]["starter"]["era"])
+
+        homePitcherString = "{:3s}: {:s} ({:s}-{:s}, {:s})".format(
+            self.game["home"]["name"],
+            self.game["home"]["starter"]["name"],
+            self.game["home"]["starter"]["wins"],
+            self.game["home"]["starter"]["losses"],
+            self.game["home"]["starter"]["era"])
+
+        if len(awayPitcherString) > len(homePitcherString):
+            longestString = awayPitcherString
+        else:
+            longestString = homePitcherString
+
+        lineHeightMultiplier = 1.2
+
+        # Divide height by 2.5 because we have 2 lines of text with a half line of spacing between
+        font, fontHeight = fontFit(fontName, longestString, (self.width * .9, self.height * .8 / 2.5 // lineHeightMultiplier))
+        lineHeight = fontHeight * lineHeightMultiplier
+
+        xStart = (self.width - font.measure(longestString)) // 2
+        lineY = (self.height - 2.5 * lineHeight) // 2
+
+        self.canvas.create_text((xStart, lineY), anchor=tk.NW, text=awayPitcherString, font=font, fill=fontColor, tags="updates")
+        lineY += 1.5 * lineHeight
+
+        self.canvas.create_text((xStart, lineY), anchor=tk.NW, text=homePitcherString, font=font, fill=fontColor, tags="updates")
+
+    def hide(self):
+        #
+        # Cheap trick to hide canvas. Apparently setting state to
+        # "hidden" is invalid despite docs saying you can do so...
+        #
+        self.canvas.place(x=-self.width - 100, y=-self.height - 100)
+
+    def show(self):
+        self.canvas.place(x=self.x, y=self.y)
 
 def exitTkinter(event):
     root.destroy()
