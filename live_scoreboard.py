@@ -413,7 +413,7 @@ class LiveScoreboard:
 
                                 lookaheadGame["adjustedStartTime"] = getAdjustedStartTime(lookaheadGame)
 
-                                self.situationPanel.hide()
+                                # self.situationPanel.hide()
                                 self.pitcherPreviewPanel.hide()
                                 self.gamePreviewPanel2.setPreview(lookaheadGame)
                                 self.gamePreviewPanel2.update()
