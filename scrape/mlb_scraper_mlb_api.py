@@ -78,19 +78,30 @@ class MlbScraperMlbApi():
                     game["startTime"]["time"] = datetime.datetime(date.year, date.month, date.day, hour, minute)
                     game["startTime"]["timeZone"] = gameData["home_time_zone"]
 
+                    game["away"]["starter"] = {}
+                    game["home"]["starter"] = {}
+
                     if gameData["away_probable_pitcher"]["name_display_roster"] != "":
-                        game["away"]["starter"] = {}
                         game["away"]["starter"]["name"] = gameData["away_probable_pitcher"]["name_display_roster"]
                         game["away"]["starter"]["wins"] = gameData["away_probable_pitcher"]["wins"]
                         game["away"]["starter"]["losses"] = gameData["away_probable_pitcher"]["losses"]
                         game["away"]["starter"]["era"] = gameData["away_probable_pitcher"]["era"]
+                    else:
+                        game["away"]["starter"]["name"] = "???"
+                        game["away"]["starter"]["wins"] = "0"
+                        game["away"]["starter"]["losses"] = "0"
+                        game["away"]["starter"]["era"] = "0.00"
                         
                     if gameData["home_probable_pitcher"]["name_display_roster"] != "":
-                        game["home"]["starter"] = {}
                         game["home"]["starter"]["name"] = gameData["home_probable_pitcher"]["name_display_roster"]
                         game["home"]["starter"]["wins"] = gameData["home_probable_pitcher"]["wins"]
                         game["home"]["starter"]["losses"] = gameData["home_probable_pitcher"]["losses"]
                         game["home"]["starter"]["era"] = gameData["home_probable_pitcher"]["era"]
+                    else:
+                        game["home"]["starter"]["name"] = "???"
+                        game["home"]["starter"]["wins"] = "0"
+                        game["home"]["starter"]["losses"] = "0"
+                        game["home"]["starter"]["era"] = "0.00"
                     
                 
                 if game["status"] == "Live":
@@ -196,7 +207,8 @@ class MlbScraperMlbApi():
 
                     game["pitcherResults"]["loss"]["name"] = gameData["losing_pitcher"]["name_display_roster"]
                     game["pitcherResults"]["loss"]["updatedWins"] = gameData["losing_pitcher"]["wins"]
-                    game["pitcherResults"]["loss"]["updatedLosses"] = gameData["losing_pitcher"]["losses"]                    
+                    game["pitcherResults"]["loss"]["updatedLosses"] = gameData["losing_pitcher"]["losses"]
+
                     if gameData["save_pitcher"]["name_display_roster"] != "":
                         game["pitcherResults"]["save"] = {}
                         game["pitcherResults"]["save"]["name"] = gameData["save_pitcher"]["name_display_roster"]
