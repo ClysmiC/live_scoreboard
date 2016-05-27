@@ -4,7 +4,7 @@ from urllib2 import urlopen
 import datetime
 import json
 
-# Game Statuses: NoGame, Pre, Live, Post
+# Game Statuses: NoGame, Pre, Live, Post, Postponed
 # InningParts: Top Mid Bot End
 
 
@@ -60,6 +60,8 @@ class MlbScraperMlbApi():
                     game["status"] = "Live"
                 elif statusString in ("Final", "Game Over"):
                     game["status"] = "Post"
+                elif statusString == "Postponed":
+                    game["status"] = "Postponed"
                 else:
                     raise Exception("Unknown status string: " + statusString)
                 
@@ -153,9 +155,9 @@ class MlbScraperMlbApi():
                     # and I want to peek ahead to the upcoming batter
                     # and pitcher
                     if game["inning"]["part"] in ("Top", "Bot"):
-                        game["situation"]["balls"]   = gameData["status"]["b"]
-                        game["situation"]["strikes"] = gameData["status"]["s"]
-                        game["situation"]["outs"]    = gameData["status"]["o"]
+                        game["situation"]["balls"]   = int(gameData["status"]["b"])
+                        game["situation"]["strikes"] = int(gameData["status"]["s"])
+                        game["situation"]["outs"]    = int(gameData["status"]["o"])
 
                         if "runner_on_1b" in gameData["runners_on_base"]:
                             game["situation"]["runners"].append(gameData["runners_on_base"]["runner_on_1b"]["name_display_roster"])

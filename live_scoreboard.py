@@ -49,6 +49,7 @@ panelBackground = (int(alphaFraction * panelBg[0] + (1 - alphaFraction) * backgr
 panelBackground = "#{:02x}{:02x}{:02x}".format(panelBackground[0], panelBackground[1], panelBackground[2])
 
 fontName = "Monospace"
+
 fontColor = "#BCBCBC"
 
 mlb = MlbScraperMlbApi()
@@ -78,6 +79,13 @@ def fontFit(name, stringToFit, dimensionsToFit):
         font = biggerFont
 
     return font, (fontSize - 1)
+
+
+def loadAndResizeImage(filePath, newSize):
+    im = Image.open(filePath)
+    im = im.resize((int(newSize[0]), int(newSize[1])))
+    return ImageTk.PhotoImage(im) # Image format compatible w/ tkinter
+
 
 
 def getAdjustedStartTime(game):
@@ -204,6 +212,13 @@ class LiveScoreboard:
         pitcherPreviewPanelWidth   = pitcherPreviewPanelX2 - pitcherPreviewPanelX1 
         pitcherPreviewPanelHeight  = pitcherPreviewPanelY2 - pitcherPreviewPanelY1
 
+        situationPanelX1      = gamePreviewPanel2X1
+        situationPanelY1      = gamePreviewPanel2Y1
+        situationPanelX2      = gamePreviewPanel2X2
+        situationPanelY2      = gamePreviewPanel2Y2
+        situationPanelWidth   = situationPanelX2 - situationPanelX1 
+        situationPanelHeight  = situationPanelY2 - situationPanelY1
+
         standingsPanelX1      = columns[22]
         standingsPanelY1      = rows[14]
         standingsPanelX2      = columns[29]
@@ -220,6 +235,7 @@ class LiveScoreboard:
         # self.boxScorePanel = BoxScorePanel(boxScorePanelX1, boxScorePanelY1, boxScorePanelWidth, boxScorePanelHeight)
         self.firstPitchCountdownPanel = FirstPitchCountdownPanel(firstPitchCountdownPanelX1, firstPitchCountdownPanelY1, firstPitchCountdownPanelWidth, firstPitchCountdownPanelHeight)
         self.pitcherPreviewPanel = PitcherPreviewPanel(pitcherPreviewPanelX1, pitcherPreviewPanelY1, pitcherPreviewPanelWidth, pitcherPreviewPanelHeight)
+        self.situationPanel = SituationPanel(situationPanelX1, situationPanelY1, situationPanelWidth, situationPanelHeight)
         self.standingsPanel = StandingsPanel(standingsPanelX1, standingsPanelY1, standingsPanelWidth, standingsPanelHeight)
 
         self.game = {}
@@ -231,6 +247,9 @@ class LiveScoreboard:
     def updatePerpetually(self):
         now = datetime.now()
         executionTime = time.time() # NOT wall clock
+
+
+        # TODO: Handle game status of "Postponed"
 
         # Update weather panel on the 40 minute mark
         if self.firstUpdate or now.minute >= self.weatherQueryMinuteMark and not self.weatherQueryMade:
@@ -383,6 +402,8 @@ class LiveScoreboard:
                             # Show situation in bottom middle
                             #
                             self.gamePreviewPanel2.hide()
+                            self.situationPanel.setSituation(self.game)
+                            self.situationPanel.update()
 
                         else:
                             #
@@ -413,16 +434,14 @@ class LiveScoreboard:
 
                                 lookaheadGame["adjustedStartTime"] = getAdjustedStartTime(lookaheadGame)
 
-                                # NOT YET IMPLEMENTED
-                                # self.situationPanel.hide()
+                                self.situationPanel.hide()
                                 self.pitcherPreviewPanel.hide()
                                 self.gamePreviewPanel2.setPreview(lookaheadGame)
                                 self.gamePreviewPanel2.update()
 
                             else:
                                 previewFailed = True
-                                # NOT YET IMPLEMENTED
-                                # self.situationPanel.hide()
+                                self.situationPanel.hide()
                                 self.pitcherPreviewPanel.hide()
                                 self.gamePreviewPanel2.showError()
                                 currTime = datetime.now()
@@ -565,22 +584,16 @@ class WeatherPanel:
         self.iconX = self.textX + self.font.measure(exampleString)
 
         self.weatherIcons = {}
-        iconSize = self.fontHeight
-
-        def loadAndResizeIcon(iconName, filePath):
-            im = Image.open(filePath)
-            im = im.resize((iconSize, iconSize))
-            self.weatherIcons[iconName] = ImageTk.PhotoImage(im) # Image format compatible w/ tkinter
-    
+        iconSize = (self.fontHeight, self.fontHeight)    
         
-        loadAndResizeIcon("Clear", "weather/icons/clear.png")
-        loadAndResizeIcon("Partly Cloudy", "weather/icons/partly_cloudy.png")
+        self.weatherIcons["Clear"] = loadAndResizeImage("weather/icons/clear.png", iconSize)
+        self.weatherIcons["Partly Cloudy"] = loadAndResizeImage("weather/icons/partly_cloudy.png", iconSize)
         self.weatherIcons["Mostly Cloudy"] = self.weatherIcons["Partly Cloudy"]
-        loadAndResizeIcon("Overcast", "weather/icons/cloudy.png")
-        loadAndResizeIcon("Chance of Rain", "weather/icons/chance_rain.png")
-        loadAndResizeIcon("Rain", "weather/icons/rain.png")
-        loadAndResizeIcon("Chance of a Thunderstonm", "weather/icons/chance_tstorm.png")
-        loadAndResizeIcon("Thunderstorm", "weather/icons/tstorm.png")
+        self.weatherIcons["Overcast"] = loadAndResizeImage("weather/icons/cloudy.png", iconSize)
+        self.weatherIcons["Chance of Rain"] = loadAndResizeImage("weather/icons/chance_rain.png", iconSize)
+        self.weatherIcons["Rain"] = loadAndResizeImage("weather/icons/rain.png", iconSize)
+        self.weatherIcons["Chance of a Thunderstorm"] = loadAndResizeImage("weather/icons/chance_tstorm.png", iconSize)
+        self.weatherIcons["Thunderstorm"] = loadAndResizeImage("weather/icons/tstorm.png", iconSize)
 
     def setWeather(self, weather):
         self.weather = weather
@@ -1051,6 +1064,202 @@ class PitcherPreviewPanel:
     def show(self):
         self.canvas.place(x=self.x, y=self.y)
 
+class SituationPanel:
+    def __init__(self, x, y, panelWidth, panelHeight):
+        self.width = panelWidth
+        self.height = panelHeight
+        self.x = x
+        self.y = y
+
+        self.canvas = tk.Canvas(root, width=self.width, height=self.height, background=panelBackground, highlightthickness=0)
+        self.canvas.place(x=self.x, y=self.y)
+
+        # Situation panel layout:
+        #
+        # 1 = B/S/O, 2 = diamond, 3 = current hitter/pitcher, 4 = last play (Play by play)
+        #
+        # 1111 2222
+        # 1111 2222
+        # 1111 2222
+        #
+        # 3333 4444
+        # 3333 4444
+
+        self.topHeightPercent = .65
+        self.botHeightPercent = 1 - self.topHeightPercent
+
+        self.leftWidthPercent = .5
+        self.rightWidthPercent = 1 - self.leftWidthPercent
+
+        # Image will be resized to character size and placed
+        # inline, as if they were characters
+        exampleTopString = " B: * * * * "
+
+        topNumLines = 3 # balls, strikes, outs
+        lineHeightMultiplier = 1.2
+
+        self.topFont, self.topFontHeight = fontFit(fontName, exampleTopString, (self.width * self.leftWidthPercent, self.height * self.topHeightPercent / topNumLines // lineHeightMultiplier))
+        self.topLineHeight = self.topFontHeight * lineHeightMultiplier
+
+        self.topLeftStartX = ((self.width * self.leftWidthPercent) - self.topFont.measure(exampleTopString)) // 2
+        self.topLeftStartY = self.topFontHeight * .2
+
+        self.topCharacterWidth = self.topFont.measure("#")
+        iconSize = (self.topCharacterWidth, self.topCharacterWidth)
+
+        self.bsoIcons = []
+        self.bsoIcons.append(loadAndResizeImage("img/situationIcons/ball.png", iconSize))
+        self.bsoIcons.append(loadAndResizeImage("img/situationIcons/strike.png", iconSize))
+        self.bsoIcons.append(loadAndResizeImage("img/situationIcons/out.png", iconSize))
+
+
+        self.diamondCenter = (self.width * self.leftWidthPercent + self.width * self.rightWidthPercent // 2,
+                              self.height * self.topHeightPercent // 2)
+
+        diamondSize = min(self.width * self.rightWidthPercent * .9, self.height * self.topHeightPercent * .9)
+        diamondSize = (diamondSize, diamondSize)
+
+        self.diamondIcons = {}
+
+        for i in range(0, 8):
+            suffix = ""
+
+            if i % 2 == 1:
+                suffix += "1"
+            else:
+                suffix += "0"
+
+            if i // 2 % 2 == 1:
+                suffix += "1"
+            else:
+                suffix += "0"
+
+            if i // 4 % 2 == 1:
+                suffix += "1"
+            else:
+                suffix += "0"
+
+            self.diamondIcons[suffix] = loadAndResizeImage("img/situationIcons/diamond" + suffix + ".png", diamondSize)
+
+    def setSituation(self, game):
+        self.game = game
+
+    def update(self):
+        self.canvas.delete("updates")
+        self.show()
+
+        lineY = self.topLeftStartY
+
+        self.canvas.create_text((self.topLeftStartX, lineY), anchor=tk.NW, text=" B: ", font=self.topFont, fill=fontColor, tags="updates")
+
+        iconStartX = self.topLeftStartX + self.topFont.measure(" B: ") + self.topCharacterWidth // 2 # plus half character so we can anchor in center
+
+        #
+        # BALLS
+        #
+        iconX = iconStartX
+        iconY = lineY + self.topLineHeight // 2
+
+        for i in range(0, self.game["situation"]["balls"]):
+            self.canvas.create_image((iconX, iconY), anchor=tk.CENTER, image=self.bsoIcons[0], tags="updates")
+            iconX += self.topCharacterWidth * 2 # times 2 because we are also adding a space
+
+        lineY += self.topLineHeight
+
+        #
+        # STRIKES
+        #
+        self.canvas.create_text((self.topLeftStartX, lineY), anchor=tk.NW, text=" S: ", font=self.topFont, fill=fontColor, tags="updates")
+
+        iconX = iconStartX
+        iconY = lineY + self.topLineHeight // 2
+
+        for i in range(0, self.game["situation"]["strikes"]):
+            self.canvas.create_image((iconX, iconY), anchor=tk.CENTER, image=self.bsoIcons[1], tags="updates")
+            iconX += self.topCharacterWidth * 2
+
+        lineY += self.topLineHeight
+
+        #
+        # OUTS
+        #
+        self.canvas.create_text((self.topLeftStartX, lineY), anchor=tk.NW, text=" O: ", font=self.topFont, fill=fontColor, tags="updates")
+
+        iconX = iconStartX
+        iconY = lineY + self.topLineHeight // 2
+
+        for i in range(0, self.game["situation"]["outs"]):
+            self.canvas.create_image((iconX, iconY), anchor=tk.CENTER, image=self.bsoIcons[2], tags="updates")
+            iconX += self.topCharacterWidth * 2
+
+
+        #
+        # RUNNERS ON DIAMOND
+        #
+        runnerString = ""
+        
+        for runner in self.game["situation"]["runners"]:
+            if runner != "":
+                runnerString += "1"
+            else:
+                runnerString += "0"
+
+        self.canvas.create_image(self.diamondCenter, anchor=tk.CENTER, image=self.diamondIcons[runnerString], tags="updates")
+
+
+        #
+        # CURRENT BATTER AND PITCHER
+        #
+        batterString = "H: {:s} ({:s})".format(self.game["situation"]["batter"]["name"], self.game["situation"]["batter"]["avg"])
+        pitcherString = "P: {:s} ({:s})".format(self.game["situation"]["pitcher"]["name"], self.game["situation"]["pitcher"]["era"])
+
+        longestStringLen = max(len(batterString), len(pitcherString))
+
+        lineHeightMultiplier = 1.2
+        bottomLeftFont, bottomLeftFontHeight = fontFit(fontName, "#" * longestStringLen, (self.width * self.leftWidthPercent * .8, self.height * self.botHeightPercent / 2 // lineHeightMultiplier))
+        bottomLeftLineHeight = bottomLeftFontHeight * lineHeightMultiplier
+
+        combinedString = batterString + "\n" + pitcherString
+        bottomLeftCenter= (self.width * self.leftWidthPercent // 2,
+                           self.height * self.topHeightPercent + self.height * self.botHeightPercent // 2)
+
+        self.canvas.create_text(bottomLeftCenter, anchor=tk.CENTER, text=combinedString, font=bottomLeftFont, fill=fontColor, tags="updates")
+
+        
+        #
+        # LAST PLAY
+        #
+        if "lastPlay" in self.game["situation"]:
+            maxLastPlayStringLength = 60
+            lastPlayString = self.game["situation"]["lastPlay"]
+
+            if len(lastPlayString) > maxLastPlayStringLength:
+                lastPlayString = lastPlayString[:maxLastPlayStringLength - 4] + " ..."
+
+            bottomRightLines = 2
+            bottomRightFont, bottomRightFontHeight = fontFit(fontName, lastPlayString[ : len(lastPlayString)//2], (self.width * self.rightWidthPercent * .9, self.height * self.botHeightPercent / bottomRightLines // lineHeightMultiplier))
+            bottomRightLineHeight = bottomRightFontHeight * lineHeightMultiplier
+
+            if bottomRightFont.measure(lastPlayString) > self.width * self.rightWidthPercent:
+                lastPlayString = lastPlayString[ : len(lastPlayString)//2] + "\n" + lastPlayString[len(lastPlayString)//2 : ]
+
+            bottomRightCenter = (self.width * self.leftWidthPercent + self.width * self.rightWidthPercent // 2,
+                                 self.height * self.topHeightPercent + self.height * self.botHeightPercent // 2)
+
+            self.canvas.create_text(bottomRightCenter, anchor=tk.CENTER, text=lastPlayString, font=bottomRightFont, fill=fontColor, tags="updates")
+
+
+    def hide(self):
+        #
+        # Cheap trick to hide canvas. Apparently setting state to
+        # "hidden" is invalid despite docs saying you can do so...
+        #
+        self.canvas.place(x=-self.width - 100, y=-self.height - 100)
+
+    def show(self):
+        self.canvas.place(x=self.x, y=self.y)
+
+            
 def exitTkinter(event):
     root.destroy()
     
