@@ -185,9 +185,9 @@ class MlbScraperMlbApi():
                         game["situation"]["pitcher"]["name"] = gameData["opposing_pitcher"]["name_display_roster"]
                         game["situation"]["pitcher"]["era"] = gameData["opposing_pitcher"]["era"]
                         
-                        game["situation"]["balls"]   = "0"
-                        game["situation"]["strikes"] = "0"
-                        game["situation"]["outs"]    = "0"
+                        game["situation"]["balls"]   = 0
+                        game["situation"]["strikes"] = 0
+                        game["situation"]["outs"]    = 0
                         game["situation"]["runners"].append("")
                         game["situation"]["runners"].append("")
                         game["situation"]["runners"].append("")
@@ -303,6 +303,9 @@ class MlbScraperMlbApi():
         
         soup = BeautifulSoup(html, "lxml")
 
+        if(team == "WAS"):
+            team = "WSH" # ESPN site uses WSH
+
         tags = soup.find("abbr", text=team)
         row = tags.find_parent(class_ = "standings-row")
         columns = row.find_all("td")
@@ -360,7 +363,10 @@ class MlbScraperMlbApi():
 
         for row in divisionRows:
             entry = {}
-            entry["name"] = str(row.find("abbr").string)
+
+            # get team nick should convert any different abbreviations to our
+            # standard set
+            entry["name"] = self.getTeamNick(str(row.find("abbr").string))
 
             columns = row.find_all("td")
             entry["wins"] = int(columns[1].string)
@@ -531,12 +537,16 @@ class MlbScraperMlbApi():
         self.teamNames["NATIONALS"]          = "WAS"
         self.teamNames["NATS"]               = "WAS"
 
-        # Future proof: 3ORLESS. If new nick-name pops up that is 3
-        # letters or less, make changes wherever 3ORLESS tag appears
-        # in comments.
+
+        #
+        # Other possible initializations -- not all sites use the same
+        # ones
+        #
+        self.teamNames["WSH"]                = "WAS"
+
+
         for key, value in self.teamNames.items():
             try:
-                assert len(key) > 3 or key == "AS" or key == "A'S"
                 assert value in self.validTeams
             except AssertionError as e:
                 e.args += (key,)

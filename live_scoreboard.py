@@ -973,10 +973,16 @@ class FirstPitchCountdownPanel:
         now = datetime.now()
         difference = self.targetTime - now
 
-        days = difference.days
-        hours = difference.seconds // 3600
-        mins = (difference.seconds % 3600) // 60
-        seconds = (difference.seconds % 3600 % 60) + 1 # Add 1 to "round up" the milliseconds, to make the clock + this time equal start time
+        if difference >= 0:
+            days = difference.days
+            hours = difference.seconds // 3600
+            mins = (difference.seconds % 3600) // 60
+            seconds = (difference.seconds % 3600 % 60) + 1 # Add 1 to "round up" the milliseconds, to make the clock + this time equal start time
+        else:
+            days = 0
+            hours = 0
+            mins = 0
+            seconds = 0
 
         botString = "{:d}:{:02d}:{:02d}:{:02d}".format(days, hours, mins, seconds)
 
@@ -1235,13 +1241,47 @@ class SituationPanel:
 
             if len(lastPlayString) > maxLastPlayStringLength:
                 lastPlayString = lastPlayString[:maxLastPlayStringLength - 4] + " ..."
+            
+            #
+            # Find the first space before and after the midpoint of
+            # the string. Whichever is closest to the string midpoint
+            # gets replaced by a new-line
+            #
+            spaceBeforeMidpointIndex = lastPlayString.rfind(" ", 0, len(lastPlayString)//2)
+            spaceAfterMidpointIndex = lastPlayString.find(" ", len(lastPlayString)//2, len(lastPlayString))
+
+            
+            spaceIndex = len(lastPlayString) // 2
+
+            #
+            # -1 means space not found. Highly, *highly* unlikely that
+            # string has no spaces, but lets check anyways.
+            #
+            if spaceBeforeMidpointIndex != -1 or spaceAfterMidpointIndex != -1:
+                if spaceBeforeMidpointIndex == -1:
+                    spaceIndex = spaceAfterMidpointIndex
+                if spaceAfterMidpointIndex == -1:
+                    spaceIndex = spaceBeforeMidpointIndex
+
+                beforeDistance = len(lastPlayString) // 2 - spaceBeforeMidpointIndex
+                afterDistance = spaceAfterMidpointIndex - len(lastPlayString) // 2
+
+                if afterDistance < beforeDistance:
+                    spaceIndex = spaceAfterMidpointIndex
+                else:
+                    spaceIndex = spaceBeforeMidpointIndex
+
+                # Replace space with \n
+                lastPlayString = lastPlayString[:spaceIndex] + "\n" + lastPlayString[spaceIndex + 1:]
+
+            longestStringLength = spaceIndex
+
+            if spaceIndex < len(lastPlayString) // 2:
+                longestStringLength = len(lastPlayString) - spaceIndex
 
             bottomRightLines = 2
-            bottomRightFont, bottomRightFontHeight = fontFit(fontName, lastPlayString[ : len(lastPlayString)//2], (self.width * self.rightWidthPercent * .9, self.height * self.botHeightPercent / bottomRightLines // lineHeightMultiplier))
+            bottomRightFont, bottomRightFontHeight = fontFit(fontName, "#" * longestStringLength, (self.width * self.rightWidthPercent * .8, self.height * self.botHeightPercent / bottomRightLines // lineHeightMultiplier))
             bottomRightLineHeight = bottomRightFontHeight * lineHeightMultiplier
-
-            if bottomRightFont.measure(lastPlayString) > self.width * self.rightWidthPercent:
-                lastPlayString = lastPlayString[ : len(lastPlayString)//2] + "\n" + lastPlayString[len(lastPlayString)//2 : ]
 
             bottomRightCenter = (self.width * self.leftWidthPercent + self.width * self.rightWidthPercent // 2,
                                  self.height * self.topHeightPercent + self.height * self.botHeightPercent // 2)
