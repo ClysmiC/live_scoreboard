@@ -465,7 +465,7 @@ class MlbScraperMlbApi():
         self.validTeams.append("TB")
         self.validTeams.append("TEX")
         self.validTeams.append("TOR")
-        self.validTeams.append("WAS")
+        self.validTeams.append("WSH")
 
         for team in self.validTeams:
             assert len(team) == 2 or len(team) == 3
@@ -534,15 +534,8 @@ class MlbScraperMlbApi():
         self.teamNames["BLUE JAYS"]          = "TOR"
         self.teamNames["BLUEJAYS"]           = "TOR"
         self.teamNames["JAYS"]               = "TOR"
-        self.teamNames["NATIONALS"]          = "WAS"
-        self.teamNames["NATS"]               = "WAS"
-
-
-        #
-        # Other possible initializations -- not all sites use the same
-        # ones
-        #
-        self.teamNames["WSH"]                = "WAS"
+        self.teamNames["NATIONALS"]          = "WSH"
+        self.teamNames["NATS"]               = "WSH"
 
 
         for key, value in self.teamNames.items():

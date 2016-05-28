@@ -384,6 +384,7 @@ class LiveScoreboard:
                         self.firstPitchCountdownPanel.setTargetTime(self.game["adjustedStartTime"])
                         self.firstPitchCountdownPanel.update()
 
+                        self.situationPanel.hide()
                         self.pitcherPreviewPanel.setPitchers(self.game)
                         self.pitcherPreviewPanel.update()
 
@@ -973,7 +974,11 @@ class FirstPitchCountdownPanel:
         now = datetime.now()
         difference = self.targetTime - now
 
-        if difference >= 0:
+        # Don't let the delta be negative if the game starts slightly
+        # late.
+        zerotime = timedelta(0, 0, 0, 0)
+
+        if difference >= zerotime:
             days = difference.days
             hours = difference.seconds // 3600
             mins = (difference.seconds % 3600) // 60
