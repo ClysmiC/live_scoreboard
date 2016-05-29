@@ -474,7 +474,8 @@ class LiveScoreboard:
                 self.gamePreviewPanel1.showError()
 
                 # self.boxScorePanel.hide()
-                self.firstPitchCountdownPanel.showError()
+                if self.game["status"] != "Pre":
+                    self.firstPitchCountdownPanel.showError()
 
                 currTime = datetime.now()
                 print("Failed game or lookahead request at {:02d}:{:02d}:{:02d}".format(currTime.hour, currTime.minute, currTime.second))
@@ -494,8 +495,6 @@ class LiveScoreboard:
                 success = False
 
             if success:
-                wcStandings = wcStandings[0:5] # Truncate wildcard to top 5 teams
-
                 self.standingsPanel.setDivisionStandings("NL Central", divisionStandings)
                 self.standingsPanel.setWildcardStandings("NL Wildcard", wcStandings)
 
@@ -857,7 +856,7 @@ class StandingsPanel:
         self.lineHeight = self.fontHeight * lineHeightMultiplier
 
         # Center horizontally
-        self.xStart = (self.width - self.font.measure(exampleString)) // 2
+        self.startX = (self.width - self.font.measure(exampleString)) // 2
 
         logoRegionWidth = self.font.measure(self.logoString)
         logoRegionHeight = self.fontHeight
@@ -922,18 +921,43 @@ class StandingsPanel:
 
         headerString  = "# " + self.logoString + "Team    W    L    GB"
 
-        self.canvas.create_text((self.xStart, lineY), anchor=tk.NW, text=headerString, font=self.underlinedFont, fill=fontColor, tags="updates")
+        self.canvas.create_text((self.startX, lineY), anchor=tk.NW, text=headerString, font=self.underlinedFont, fill=fontColor, tags="updates")
         lineY += 0.2 * self.lineHeight 
 
+        teamOfInterestIndex = -1
         for i, team in enumerate(self.standings):
-            lineY += self.lineHeight
-            
-            teamString = "{:d} {:s} {:s}  {:3d}  {:3d}  {:4.1f}".format(i+1, self.logoString, team["name"], team["wins"], team["losses"], team["gb"])
-            
-            self.canvas.create_text((self.xStart, lineY), anchor=tk.NW, text=teamString, font=self.font, fill=fontColor, tags="updates")
+            if team["name"] == TEAM_OF_INTEREST:
+                teamOfInterestIndex = i
+                break
 
-            logoXMiddle = self.xStart + self.font.measure("1 ") + (self.font.measure(self.logoString) // 2)
-            self.canvas.create_image((logoXMiddle, lineY + self.lineHeight // 2), anchor=tk.CENTER, image=self.scaledLogos[team["name"]], tags="updates")
+        assert(teamOfInterestIndex != -1)
+        
+        for i, team in enumerate(self.standings[:5]):
+
+            lineY += self.lineHeight
+
+            #
+            # Last iteration and team of interest hasn't been listed yet (maybe they are 7th for
+            # WC). List team of interest instead of the 5th team and draw a line above, indicating
+            # that the list has been broken up
+            #
+            if i == 4 and teamOfInterestIndex > 4:
+                teamOfInterest = self.standings[teamOfInterestIndex]
+
+                teamString = "{:d} {:s} {:s}  {:3d}  {:3d}  {:4.1f}".format(teamOfInterestIndex+1, self.logoString, teamOfInterest["name"], teamOfInterest["wins"], teamOfInterest["losses"], teamOfInterest["gb"])
+                logo = self.scaledLogos[teamOfInterest["name"]]
+
+                dividerY = lineY - (self.lineHeight - self.fontHeight) // 2
+                self.canvas.create_line((self.startX, dividerY, self.startX + self.font.measure(teamString), dividerY), fill=fontColor, tags="updates")
+            else:
+                teamString = "{:d} {:s} {:s}  {:3d}  {:3d}  {:4.1f}".format(i+1, self.logoString, team["name"], team["wins"], team["losses"], team["gb"])
+                logo = self.scaledLogos[team["name"]]
+
+            logoXMiddle = self.startX + self.font.measure("1 ") + (self.font.measure(self.logoString) // 2)
+            self.canvas.create_text((self.startX, lineY), anchor=tk.NW, text=teamString, font=self.font, fill=fontColor, tags="updates")
+
+
+            self.canvas.create_image((logoXMiddle, lineY + self.lineHeight // 2), anchor=tk.CENTER, image=logo, tags="updates")
             
 
     def showError(self):
@@ -1057,13 +1081,13 @@ class PitcherPreviewPanel:
         font, fontHeight = fontFit(fontName, longestString, (self.width * .9, self.height * .8 / 2.5 // lineHeightMultiplier))
         lineHeight = fontHeight * lineHeightMultiplier
 
-        xStart = (self.width - font.measure(longestString)) // 2
+        startX = (self.width - font.measure(longestString)) // 2
         lineY = (self.height - 2.5 * lineHeight) // 2
 
-        self.canvas.create_text((xStart, lineY), anchor=tk.NW, text=awayPitcherString, font=font, fill=fontColor, tags="updates")
+        self.canvas.create_text((startX, lineY), anchor=tk.NW, text=awayPitcherString, font=font, fill=fontColor, tags="updates")
         lineY += 1.5 * lineHeight
 
-        self.canvas.create_text((xStart, lineY), anchor=tk.NW, text=homePitcherString, font=font, fill=fontColor, tags="updates")
+        self.canvas.create_text((startX, lineY), anchor=tk.NW, text=homePitcherString, font=font, fill=fontColor, tags="updates")
 
     def hide(self):
         #
