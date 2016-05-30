@@ -26,6 +26,9 @@ from socket import timeout as TimeoutError
 RASPBERRY_PI_TIMEZONE = "PT"
 
 TEAM_OF_INTEREST = "STL"
+DIVISION_OF_INTEREST = "NLC"
+WILDCARD_DIVISION_OF_INTEREST = "NLWC"
+
 WEATHER_LOCATION = ("Seattle", "WA")
 
 timezones = ["PT", "MST", "CT", "ET"]
@@ -490,10 +493,8 @@ class LiveScoreboard:
             success = False
 
             try:
-                # TODO, request NLC and NLWC and toggle between the
-                # two every 10-20 seconds
-                divisionStandings = mlb.getDivisionStandings("NLC")
-                wcStandings = mlb.getDivisionStandings("NLWC")
+                divisionStandings = mlb.getDivisionStandings(DIVISION_OF_INTEREST)
+                wcStandings = mlb.getDivisionStandings(WILDCARD_DIVISION_OF_INTEREST)
                 success = True
             except:
                 success = False
@@ -717,7 +718,7 @@ class GameScorePanel():
             if totalInnings == 9:
                 inningString = "Final"
             else:
-                inningString = "Final ({:d})".format(totalInnings)
+                inningString = "F ({:d})".format(totalInnings)
 
         lineY = self.lineYStart
 
@@ -933,8 +934,6 @@ class StandingsPanel:
             if team["name"] == TEAM_OF_INTEREST:
                 teamOfInterestIndex = i
                 break
-
-        assert(teamOfInterestIndex != -1)
         
         for i, team in enumerate(self.standings[:5]):
 
@@ -948,13 +947,13 @@ class StandingsPanel:
             if i == 4 and teamOfInterestIndex > 4:
                 teamOfInterest = self.standings[teamOfInterestIndex]
 
-                teamString = "{:d} {:s} {:s}  {:3d}  {:3d}  {:4.1f}".format(teamOfInterestIndex+1, self.logoString, teamOfInterest["name"], teamOfInterest["wins"], teamOfInterest["losses"], teamOfInterest["gb"])
+                teamString = "{:d} {:s} {:<3s}  {:3d}  {:3d}  {:4.1f}".format(teamOfInterestIndex+1, self.logoString, teamOfInterest["name"], teamOfInterest["wins"], teamOfInterest["losses"], teamOfInterest["gb"])
                 logo = self.scaledLogos[teamOfInterest["name"]]
 
                 dividerY = lineY - (self.lineHeight - self.fontHeight) // 2
                 self.canvas.create_line((self.startX, dividerY, self.startX + self.font.measure(teamString), dividerY), fill=fontColor, tags="updates")
             else:
-                teamString = "{:d} {:s} {:s}  {:3d}  {:3d}  {:4.1f}".format(i+1, self.logoString, team["name"], team["wins"], team["losses"], team["gb"])
+                teamString = "{:d} {:s} {:<3s}  {:3d}  {:3d}  {:4.1f}".format(i+1, self.logoString, team["name"], team["wins"], team["losses"], team["gb"])
                 logo = self.scaledLogos[team["name"]]
 
             logoXMiddle = self.startX + self.font.measure("1 ") + (self.font.measure(self.logoString) // 2)
@@ -1271,9 +1270,11 @@ class SituationPanel:
         if "lastPlay" in self.game["situation"]:
             maxLastPlayStringLength = 60
             lastPlayString = self.game["situation"]["lastPlay"]
+            lastPlayString.replace("  ", " ") # MLB uses double spaces after period *facepalm*
 
             if len(lastPlayString) > maxLastPlayStringLength:
-                lastPlayString = lastPlayString[:maxLastPlayStringLength - 4] + " ..."
+                lastSpaceIndex = lastPlayString.rfind(" ")
+                lastPlayString = lastPlayString[0:lastSpaceIndex] + " ..."
             
             #
             # Find the first space before and after the midpoint of
@@ -1313,7 +1314,7 @@ class SituationPanel:
                 longestStringLength = len(lastPlayString) - spaceIndex
 
             bottomRightLines = 2
-            bottomRightFont, bottomRightFontHeight = fontFit(fontName, "#" * longestStringLength, (self.width * self.rightWidthPercent * .8, self.height * self.botHeightPercent / bottomRightLines // lineHeightMultiplier))
+            bottomRightFont, bottomRightFontHeight = fontFit(fontName, "#" * longestStringLength, (self.width * self.rightWidthPercent, self.height * self.botHeightPercent / bottomRightLines // lineHeightMultiplier))
             bottomRightLineHeight = bottomRightFontHeight * lineHeightMultiplier
 
             bottomRightCenter = (self.width * self.leftWidthPercent + self.width * self.rightWidthPercent // 2,
@@ -1343,7 +1344,7 @@ class BoxScorePanel:
         self.canvas = tk.Canvas(root, width=self.width, height=self.height, background=panelBackground, highlightthickness=0)
         self.canvas.place(x=self.x, y=self.y)
 
-        self.topHeightPercent = 0.9 # main box score
+        self.topHeightPercent = 0.85 # main box score
         self.botHeightPercent = 1 - self.topHeightPercent # win/loss/save pitcher info, post game
 
         #                         1  2  3  4  5  6  7  8  9   R  H  E
@@ -1426,7 +1427,7 @@ class BoxScorePanel:
         # Display win/loss/save pitchers
         #
         if (self.game["status"]) == "Post":
-            spaceBetweenPitchers = "   "
+            spaceBetweenPitchers = "     "
             botString = "W: {:s} ({:s}-{:s}){:s}L: {:s} ({:s}-{:s})".format(
                 self.game["pitcherResults"]["win"]["name"],
                 self.game["pitcherResults"]["win"]["updatedWins"],
@@ -1437,19 +1438,18 @@ class BoxScorePanel:
                 self.game["pitcherResults"]["loss"]["updatedLosses"])
 
             if "save" in self.game["pitcherResults"]:
-                botString += "{:s}S: {:s} ({:s}-{:s})".format(
+                botString += "{:s}S: {:s} ({:s})".format(
                     spaceBetweenPitchers,
                     self.game["pitcherResults"]["save"]["name"],
-                    self.game["pitcherResults"]["save"]["updatedWins"],
-                    self.game["pitcherResults"]["save"]["updatedLosses"])
+                    self.game["pitcherResults"]["save"]["updatedSaves"])
 
-            lineHeightMultiplier = 1.2
-            botStringFont = fontFit(fontName, botString, (self.width * .9, self.height * self.botHeightPercent // lineHeightMultiplier))
+            lineHeightMultiplier = 1.5
+            botFont, botFontHeight = fontFit(fontName, botString, (self.width * .9, self.height * self.botHeightPercent // lineHeightMultiplier))
             
             botMidX = self.width // 2
             botMidY = self.height * self.topHeightPercent + self.height * self.botHeightPercent // 2
 
-            self.canvas.create_text((botMidX, botMidY), anchor=tk.CENTER, text=botString, font=botStringFont, fill=fontColor, tags="updates")
+            self.canvas.create_text((botMidX, botMidY), anchor=tk.CENTER, text=botString, font=botFont, fill=fontColor, tags="updates")
 
 
     def hide(self):
