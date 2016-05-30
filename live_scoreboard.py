@@ -232,7 +232,7 @@ class LiveScoreboard:
         self.gameScorePanel = GameScorePanel(gameScorePanelX1, gameScorePanelY1, gameScorePanelWidth, gameScorePanelHeight)
         self.gamePreviewPanel1 = GamePreviewPanel(gamePreviewPanel1X1, gamePreviewPanel1Y1, gamePreviewPanel1Width, gamePreviewPanel1Height)
         self.gamePreviewPanel2 = GamePreviewPanel(gamePreviewPanel2X1, gamePreviewPanel2Y1, gamePreviewPanel2Width, gamePreviewPanel2Height)
-        # self.boxScorePanel = BoxScorePanel(boxScorePanelX1, boxScorePanelY1, boxScorePanelWidth, boxScorePanelHeight)
+        self.boxScorePanel = BoxScorePanel(boxScorePanelX1, boxScorePanelY1, boxScorePanelWidth, boxScorePanelHeight)
         self.firstPitchCountdownPanel = FirstPitchCountdownPanel(firstPitchCountdownPanelX1, firstPitchCountdownPanelY1, firstPitchCountdownPanelWidth, firstPitchCountdownPanelHeight)
         self.pitcherPreviewPanel = PitcherPreviewPanel(pitcherPreviewPanelX1, pitcherPreviewPanelY1, pitcherPreviewPanelWidth, pitcherPreviewPanelHeight)
         self.situationPanel = SituationPanel(situationPanelX1, situationPanelY1, situationPanelWidth, situationPanelHeight)
@@ -381,6 +381,7 @@ class LiveScoreboard:
                         self.gamePreviewPanel1.setPreview(self.game)
                         self.gamePreviewPanel1.update()
 
+                        self.boxScorePanel.hide()
                         self.firstPitchCountdownPanel.setTargetTime(self.game["adjustedStartTime"])
                         self.firstPitchCountdownPanel.update()
 
@@ -397,6 +398,9 @@ class LiveScoreboard:
                         self.gameScorePanel.setScore(self.game)
                         self.gameScorePanel.update()
 
+                        self.firstPitchCountdownPanel.hide()
+                        self.boxScorePanel.setGame(self.game)
+                        self.boxScorePanel.update()
 
                         if self.game["status"] == "Live":
                             #
@@ -473,7 +477,7 @@ class LiveScoreboard:
                 self.gameScorePanel.hide()
                 self.gamePreviewPanel1.showError()
 
-                # self.boxScorePanel.hide()
+                self.boxScorePanel.hide()
                 if self.game["status"] != "Pre":
                     self.firstPitchCountdownPanel.showError()
 
@@ -1328,6 +1332,136 @@ class SituationPanel:
     def show(self):
         self.canvas.place(x=self.x, y=self.y)
 
+
+class BoxScorePanel:
+    def __init__(self, x, y, panelWidth, panelHeight):
+        self.width = panelWidth
+        self.height = panelHeight
+        self.x = x
+        self.y = y
+
+        self.canvas = tk.Canvas(root, width=self.width, height=self.height, background=panelBackground, highlightthickness=0)
+        self.canvas.place(x=self.x, y=self.y)
+
+        self.topHeightPercent = 0.9 # main box score
+        self.botHeightPercent = 1 - self.topHeightPercent # win/loss/save pitcher info, post game
+
+        #                         1  2  3  4  5  6  7  8  9   R  H  E
+        exampleString = "*  STL  10 10 10 10 10 10 10 10 10  10 10 10"
+
+        topNumLines = 3
+        lineHeightMultiplier = 1.2
+
+        self.topFont, self.topFontHeight = fontFit(fontName, exampleString, (self.width * .9, self.height * self.topHeightPercent // topNumLines // lineHeightMultiplier))
+        self.topLineHeight = self.topFontHeight * lineHeightMultiplier
+        self.topUnderlinedFont = tkFont.Font(family=fontName, size=-self.topFontHeight, underline=1)
+
+        self.topStartLineY = (self.height * self.topHeightPercent - self.topLineHeight * topNumLines) // 2
+        self.topStartX = (self.width - self.topFont.measure(exampleString)) // 2
+        
+
+    def setGame(self, game):
+        self.game = game
+
+    def update(self):
+        self.canvas.delete("updates")
+        self.show()
+
+        # If game is in extras, "shift" displayed innings to the left so The current inning is the
+        # last one displayed.
+        firstInningIndexToDisplay = len(self.game["away"]["scoreByInning"]) - 9
+
+        topString = "       "
+
+        for i in range(firstInningIndexToDisplay, firstInningIndexToDisplay + 9):
+            topString += "{:>2d}".format(i + 1)
+            topString += " "
+
+        topString += "  R  H  E"
+
+        if (self.game["status"]) == "Live":
+            if (self.game["inning"]["part"]) in ("End", "Top"):
+                awayString = "* "
+                homeString = "  "
+            else:
+                awayString = "  "
+                homeString = "* "
+        else:
+            awayString = "  "
+            homeString = "  "
+
+
+        awayString += "{:>3s}".format(self.game["away"]["name"])
+        awayString += "  "
+
+        for inningRuns in self.game["away"]["scoreByInning"][firstInningIndexToDisplay : firstInningIndexToDisplay + 9]:
+            awayString += "{:>2s}".format(inningRuns)
+            awayString += " "
+
+        awayString += " {:>2s} {:>2s} {:>2s}".format(self.game["away"]["runs"], self.game["away"]["hits"], self.game["away"]["errors"])
+
+
+        homeString += "{:3s}".format(self.game["home"]["name"])
+        homeString += "  "
+
+        for inningRuns in self.game["home"]["scoreByInning"][firstInningIndexToDisplay : firstInningIndexToDisplay + 9]:
+            homeString += "{:>2s}".format(inningRuns)
+            homeString += " "
+
+        homeString += " {:>2s} {:>2s} {:>2s}".format(self.game["home"]["runs"], self.game["home"]["hits"], self.game["home"]["errors"])
+
+
+        lineY = self.topStartLineY
+
+        self.canvas.create_text((self.topStartX, lineY), anchor=tk.NW, text=topString, font=self.topUnderlinedFont, fill=fontColor, tags="updates")
+        lineY += self.topLineHeight
+
+        self.canvas.create_text((self.topStartX, lineY), anchor=tk.NW, text=awayString, font=self.topFont, fill=fontColor, tags="updates")
+        lineY += self.topLineHeight
+
+        self.canvas.create_text((self.topStartX, lineY), anchor=tk.NW, text=homeString, font=self.topFont, fill=fontColor, tags="updates")
+
+
+        #
+        # Display win/loss/save pitchers
+        #
+        if (self.game["status"]) == "Post":
+            spaceBetweenPitchers = "   "
+            botString = "W: {:s} ({:s}-{:s}){:s}L: {:s} ({:s}-{:s})".format(
+                self.game["pitcherResults"]["win"]["name"],
+                self.game["pitcherResults"]["win"]["updatedWins"],
+                self.game["pitcherResults"]["win"]["updatedLosses"],
+                spaceBetweenPitchers,
+                self.game["pitcherResults"]["loss"]["name"],
+                self.game["pitcherResults"]["loss"]["updatedWins"],
+                self.game["pitcherResults"]["loss"]["updatedLosses"])
+
+            if "save" in self.game["pitcherResults"]:
+                botString += "{:s}S: {:s} ({:s}-{:s})".format(
+                    spaceBetweenPitchers,
+                    self.game["pitcherResults"]["save"]["name"],
+                    self.game["pitcherResults"]["save"]["updatedWins"],
+                    self.game["pitcherResults"]["save"]["updatedLosses"])
+
+            lineHeightMultiplier = 1.2
+            botStringFont = fontFit(fontName, botString, (self.width * .9, self.height * self.botHeightPercent // lineHeightMultiplier))
+            
+            botMidX = self.width // 2
+            botMidY = self.height * self.topHeightPercent + self.height * self.botHeightPercent // 2
+
+            self.canvas.create_text((botMidX, botMidY), anchor=tk.CENTER, text=botString, font=botStringFont, fill=fontColor, tags="updates")
+
+
+    def hide(self):
+        #
+        # Cheap trick to hide canvas. Apparently setting state to
+        # "hidden" is invalid despite docs saying you can do so...
+        #
+        self.canvas.place(x=-self.width - 100, y=-self.height - 100)
+
+    def show(self):
+        self.canvas.place(x=self.x, y=self.y)
+    
             
 def exitTkinter(event):
     root.destroy()
