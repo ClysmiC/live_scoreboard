@@ -256,7 +256,7 @@ class AsyncRequester:
     def __asyncRequestDivisionData(self):        
         success = False
 
-        self.lastRequestedWeatherQueryTime = time.time()
+        self.lastRequestedDivisionQueryTime = time.time()
 
         while not success:
             try:
@@ -427,7 +427,7 @@ class LiveScoreboard:
         now = datetime.now()
         executionTime = time.time() # NOT wall clock
 
-        if now.minute < 40:
+        if now.minute < self.weatherQueryMinuteMark:
             self.weatherQueryMade = False
 
         # TODO: Handle game status of "Postponed"
