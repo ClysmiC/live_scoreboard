@@ -9,6 +9,8 @@ import time
 import Tkinter as tk
 import tkFont
 
+import threading
+
 from PIL import Image, ImageTk
 from urllib2 import URLError
 from socket import timeout as TimeoutError
@@ -98,6 +100,176 @@ def getAdjustedStartTime(game):
     adjustedStartTime = rawDateTime + timedelta(hours=hoursToAdjust)
     return adjustedStartTime
 
+class AsyncRequester:
+    def __init__(self):
+        # Don't update the main preview to today's game until 4am.
+        # That way, if I'm up late (i.e., 1 am) I can still see the
+        # results for what I would consider to be "today"
+        self.showTodaysGameHour = 4
+
+        self.lastRequestedGameQueryTime     = 0
+        self.lastRequestedDivisionQueryTime = 0
+        self.lastRequestedWeatherQueryTime  = 0
+
+        self.lastSuccessfulGameQueryTime     = 0
+        self.lastSuccessfulDivisionQueryTime = 0
+        self.lastSuccessfulWeatherQueryTime  = 0
+
+        self.newGameDataAvailable     = False
+        self.newDivisionDataAvailable = False
+        self.newWeatherDataAvailable  = False
+
+        self.__game = None
+        self.__nextGame = None
+        self.__weatherInfo = None
+        self.__divisionStandings = None
+        self.__wildcardStandings = None
+
+        self.__weatherThread = None
+        self.__gameThread = None
+        self.__divisionThread = None
+
+
+    def getWeatherData(self):
+        if self.newWeatherDataAvailable:
+            self.newWeatherDataAvailable = False
+            return self.__weatherInfo
+        else:
+            return None
+
+    def getGameData(self):
+        if self.newGameDataAvailable:
+            self.newGameDataAvailable = False
+            return self.__game, self.__nextGame
+        else:
+            return None
+
+    def getDivisionData(self):
+        if self.newDivisionDataAvailable:
+            self.newDivisionDataAvailable = False
+            return self.__divisionStandings, self.__wildcardStandings
+        else:
+            return None
+
+    def requestWeatherData(self):
+        # If internet has been out for an hour, there is already a
+        # thread still running trying to get the data
+        if self.__weatherThread is None or not self.__weatherThread.isAlive():
+            self.__weatherThread = threading.Thread(target=self.__asyncRequestWeatherData)
+            self.__weatherThread.start()
+        
+    def requestGameData(self):
+        if self.__gameThread is None or not self.__gameThread.isAlive():
+            self.__gameThread = threading.Thread(target=self.__asyncRequestGameData)
+            self.__gameThread.start()
+
+    def requestDivisionData(self):
+        if self.__divisionThread is None or not self.__divisionThread.isAlive():
+            self.__divisionThread = threading.Thread(target=self.__asyncRequestDivisionData)
+            self.__divisionThread.start()
+
+    def __asyncRequestWeatherData(self):
+        success = False
+
+        lastRequestedWeatherQueryTime = time.time()
+
+        while not success:
+            try:
+                self.__weatherInfo = hourlyForecast(WEATHER_LOCATION[0], WEATHER_LOCATION[1], wundergroundApiKey)
+                success = True
+            except:
+                success = False
+                currTime = datetime.now()
+                print("FAIL: Weather request at {:02d}:{:02d}:{:02d}".format(currTime.hour, currTime.minute, currTime.second))
+
+        currTime = datetime.now()
+        print("SUCCESS: Weather request at {:02d}:{:02d}:{:02d}".format(currTime.hour, currTime.minute, currTime.second))
+        lastSuccessfulWeatherQueryTime = time.time()
+        self.newWeatherDataAvailable = True
+
+    def __asyncRequestGameData(self):
+        self.lastRequestedGameQueryTime = time.time()
+
+        success = False
+
+        while not success:
+            dateOfInterest = datetime.now()
+            if datetime.now().hour < self.showTodaysGameHour:
+                dateOfInterest -= timedelta(days=1)
+
+            try:
+                self.__game = mlb.getGameInfo(TEAM_OF_INTEREST, dateOfInterest)
+                success = True
+            except:
+                success = False
+                currTime = datetime.now()
+                print("FAIL: Game request at {:02d}:{:02d}:{:02d}".format(currTime.hour, currTime.minute, currTime.second))
+
+            if success:
+
+                # If no game found for today, look ahead up to 10 days
+                # until we find a 
+                if self.__game["status"] == "NoGame":
+                    try:
+                        lookaheadDays = 0
+                        while self.game["status"] == "NoGame" and lookaheadDays < 10:
+                            lookaheadDays += 1
+                            dateOfInterest = dateOfInterest + timedelta(days=1)
+                            self.__game = mlb.getGameInfo(TEAM_OF_INTEREST, dateOfInterest)
+
+                        success = True
+                    except:
+                        success = False
+                        currTime = datetime.now()
+                        print("FAIL: Game request at {:02d}:{:02d}:{:02d}".format(currTime.hour, currTime.minute, currTime.second))
+
+                elif self.__game["status"] == "Post":
+                    #
+                    # Preview next game in the bottom middle
+                    #
+
+                    # Look ahead until we find next game
+                    lookaheadDays = 0
+                    self.__nextGame = {}
+                    self.__nextGame["status"] = "NoGame"
+
+                    try:
+                        while self.__nextGame["status"] == "NoGame" and lookaheadDays < 10:
+                            lookaheadDays += 1
+                            dateOfInterest = dateOfInterest + timedelta(days=1)
+                            self.__nextGame = mlb.getGameInfo(TEAM_OF_INTEREST, dateOfInterest)
+                            success = True
+                    except:
+                        success = False
+                        currTime = datetime.now()
+                        print("FAIL: Game request at {:02d}:{:02d}:{:02d}".format(currTime.hour, currTime.minute, currTime.second))
+
+
+        currTime = datetime.now()
+        print("SUCCESS: Game request at {:02d}:{:02d}:{:02d}".format(currTime.hour, currTime.minute, currTime.second))
+        self.lastSuccessfulGameQueryTime = time.time()
+        self.newGameDataAvailable = True
+
+
+    def __asyncRequestDivisionData(self):        
+        success = False
+
+        self.lastRequestedWeatherQueryTime = time.time()
+
+        while not success:
+            try:
+                self.__divisionStandings = mlb.getDivisionStandings(DIVISION_OF_INTEREST)
+                self.__wildcardStandings = mlb.getDivisionStandings(WILDCARD_DIVISION_OF_INTEREST)
+                success = True
+            except:
+                currTime = datetime.now()
+                print("FAIL: Standings request at {:02d}:{:02d}:{:02d}".format(currTime.hour, currTime.minute, currTime.second))
+                success = False
+
+        currTime = datetime.now()
+        print("SUCCESS: Standings request at {:02d}:{:02d}:{:02d}".format(currTime.hour, currTime.minute, currTime.second))
+        self.lastSuccessfulDivisionQueryTime = time.time()
+        self.newDivisionDataAvailable = True
 
 class LiveScoreboard:
     def __init__(self):
@@ -105,8 +277,6 @@ class LiveScoreboard:
         # is used to make our requests at a reasonable rate.
         self.weatherQueryMade = False         # (This hour)
 
-        self.lastGameQueryTime = 0
-        self.lastDivisionQueryTime = 0
         self.lastSwitchStandingsTime = 0
 
         self.weatherQueryMinuteMark    = 40   # Query at XX:40
@@ -119,15 +289,18 @@ class LiveScoreboard:
         self.gameLiveQueryCooldown       = 20   # Once per 20 seconds
         self.divisionQueryCooldown       = 907  # Once per 15 minutes
 
+        # Number of seconds after async request gets made before
+        # considering an error to have occurred.
+        self.timeBeforeError = 30
+
         # Both division and wildcard standings are queried during the
         # division query.  This timer determines how often the
         # division displays one before switching to the other.
         self.switchStandingsTime         = 15
 
-        # Don't update the main preview to today's game until 4am.
-        # That way, if I'm up late (i.e., 1 am) I can still see the
-        # results for what I would consider to be "today"
-        self.showTodaysGameHour = 4
+
+        self.async = AsyncRequester()
+
 
         #
         # Split the screen up into these virtual rows and columns. Use these
@@ -177,7 +350,7 @@ class LiveScoreboard:
         #
         # Since the rendering logic is independent of the panel
         # width/height, we make each an instance of the
-        # GamePreviewPanel class, and simply store them as panel #1
+        # GamePreviewPanel class, and simply store them as panel #1            
         # and panel #2
         #
         gamePreviewPanel1X1     = gameScorePanelX1
@@ -251,269 +424,198 @@ class LiveScoreboard:
         now = datetime.now()
         executionTime = time.time() # NOT wall clock
 
-
-        # TODO: Handle game status of "Postponed"
-
-        # Update weather panel on the 40 minute mark
-        if self.firstUpdate or now.minute >= self.weatherQueryMinuteMark and not self.weatherQueryMade:
-
-            success = False
-
-            try:
-                weatherInfo = hourlyForecast(WEATHER_LOCATION[0], WEATHER_LOCATION[1], wundergroundApiKey)
-                success = True
-            except:
-                success = False
-
-            if success:
-                weatherInfoToDisplay = []
-
-                currTime = datetime.now()
-                print("Weather request successfully made at {:02d}:{:02d}:{:02d}".format(currTime.hour, currTime.minute, currTime.second))
-
-                # Only display up to 12 hours, using the following rules.
-                #
-                # 1. Next 3 hours are always displayed
-                # 2. Only even hours are displayed (except when rule 1)
-                # 3. 00:00 - 05:59 are not displayed (except when rule 1)
-                for i, hour in enumerate(weatherInfo):
-                    if len(weatherInfoToDisplay) == 12:
-                        break
-
-                    if i < 3:
-                        weatherInfoToDisplay.append(hour)
-                    elif hour["time"].hour % 2 == 0 and hour["time"].hour > 5:
-                        weatherInfoToDisplay.append(hour)
-
-                self.weatherPanel.setWeather(weatherInfoToDisplay)
-                self.weatherPanel.update()
-
-                self.weatherQueryMade = True
-            else:
-                self.weatherPanel.showError()
-                currTime = datetime.now()
-                print("Weather request failed at {:02d}:{:02d}:{:02d} .... error displayed".format(currTime.hour, currTime.minute, currTime.second))
-
-
         if now.minute < 40:
             self.weatherQueryMade = False
 
+        # TODO: Handle game status of "Postponed"
+
 
         #
-        # NOTE: potential errors if first update had connection
-        # problems and failed to produce a self.game. Ignoring this
-        # for now since this only happens the first iteration of a
-        # program that runs for days/weeks/months
+        # Request weather data at the 40 minute mark
         #
+        if self.firstUpdate or now.minute >= self.weatherQueryMinuteMark and not self.weatherQueryMade:
+            self.async.requestWeatherData()
+            self.weatherQueryMade = True
 
-
-        gameAlmostStarted = False
 
         #
         # Determine if game is "almost started", in which case the
         # poll rate picks up
         #
+        gameAlmostStarted = False
+
         if not self.firstUpdate and self.game["status"] == "Pre":
             timeUntilGame = self.game["adjustedStartTime"] - datetime.now()
             if timeUntilGame.total_seconds() < self.gameNonLiveQueryCooldown:
                 gameAlmostStarted = True
 
-        
+
         #
-        # Poll the game data!
+        # Request game data
         #
         if (self.firstUpdate) or (
-            self.game["status"] == "Live" and executionTime - self.lastGameQueryTime >= self.gameLiveQueryCooldown) or (
-            gameAlmostStarted and executionTime - self.lastGameQueryTime >= self.gameAlmostLiveQueryCooldown) or (
-                executionTime - self.lastGameQueryTime >= self.gameNonLiveQueryCooldown):
-
-            # Don't update to todays game until 4am. If it is
-            # before 4am, show yesterday's game
-            dateOfInterest = deepcopy(now)
-
-            if now.hour < self.showTodaysGameHour:
-                dateOfInterest -= timedelta(days=1)
-
-            success = False
-            try:
-                self.game = mlb.getGameInfo(TEAM_OF_INTEREST, dateOfInterest)
-                success = True
-            except:
-                success = False
-
-            if success:
-                currTime = datetime.now()
-                print("Game request successful at {:02d}:{:02d}:{:02d}".format(currTime.hour, currTime.minute, currTime.second))
-
-                #
-                # Serves double duty. Holds the success of either the
-                # preview of the upcoming game (today is a NoGame), or
-                # the success of the next game preview when today's
-                # game is Post. In both cases, failure means re-do the
-                # query next time we get the chance.
-                #
-                previewFailed = False
+            self.game["status"] == "Live" and executionTime - self.async.lastSuccessfulGameQueryTime >= self.gameLiveQueryCooldown) or (
+            gameAlmostStarted and executionTime - self.async.lastSuccessfulGameQueryTime >= self.gameAlmostLiveQueryCooldown) or (
+                executionTime - self.async.lastSuccessfulGameQueryTime >= self.gameNonLiveQueryCooldown):
+            
+            self.async.requestGameData()
 
 
-                # If no game found for today, look ahead up to 10 days
-                # until we find a game
+        #
+        # Request division data
+        #
+        if self.firstUpdate or executionTime - self.async.lastSuccessfulDivisionQueryTime >= self.divisionQueryCooldown:
+            self.async.requestDivisionData()
 
-                try:
-                    lookaheadDays = 0
-                    while self.game["status"] == "NoGame" and lookaheadDays < 10:
-                        lookaheadDays += 1
-                        dateOfInterest = dateOfInterest + timedelta(days=1)
-                        self.game = mlb.getGameInfo(TEAM_OF_INTEREST, dateOfInterest)
 
-                        currTime = datetime.now()
-                        print("Lookahead {:d} day(s) request successful at {:02d}:{:02d}:{:02d}".format(lookaheadDays, currTime.hour, currTime.minute, currTime.second)) 
-                    
-                    previewFailed = False
-                except:
-                    previewFailed = True
+            
+        #
+        # Get updated weather info, show on panel
+        #
+        if self.async.newWeatherDataAvailable:
+            weatherInfo = self.async.getWeatherData()
 
-                if not previewFailed:
+            weatherInfoToDisplay = []
 
+            currTime = datetime.now()
+
+            # Only display up to 12 hours, using the following rules.
+            #
+            # 1. Next 3 hours are always displayed
+            # 2. Only even hours are displayed (except when rule 1)
+            # 3. 00:00 - 05:59 are not displayed (except when rule 1)
+            for i, hour in enumerate(weatherInfo):
+                if len(weatherInfoToDisplay) == 12:
+                    break
+
+                if i < 3:
+                    weatherInfoToDisplay.append(hour)
+                elif hour["time"].hour % 2 == 0 and hour["time"].hour > 5:
+                    weatherInfoToDisplay.append(hour)
+
+
+            self.weatherPanel.setWeather(weatherInfoToDisplay)
+            self.weatherPanel.update()
+
+
+        #
+        # Get updated game info, show on panel
+        #
+        if self.async.newGameDataAvailable:
+            # Note: lookaheadGame is only displayed when game is in
+            # "post" and we want to show tomorrow's game
+            game, lookaheadGame = self.async.getGameData()
+
+            #
+            # Game not yet started
+            #
+            if game["status"] == "Pre":
+                game["adjustedStartTime"] = getAdjustedStartTime(game)
+
+                self.gameScorePanel.hide()
+                self.gamePreviewPanel1.setPreview(game)
+                self.gamePreviewPanel1.update()
+
+                self.boxScorePanel.hide()
+                self.firstPitchCountdownPanel.setTargetTime(game["adjustedStartTime"])
+                self.firstPitchCountdownPanel.update()
+
+                self.situationPanel.hide()
+                self.pitcherPreviewPanel.setPitchers(game)
+                self.pitcherPreviewPanel.update()
+
+
+            #
+            # Game is live or finished
+            #
+            elif game["status"] in ("Live", "Post"):
+                self.gamePreviewPanel1.hide()
+                self.gameScorePanel.setScore(game)
+                self.gameScorePanel.update()
+
+                self.firstPitchCountdownPanel.hide()
+                self.boxScorePanel.setGame(game)
+                self.boxScorePanel.update()
+
+                if game["status"] == "Live":
                     #
-                    # Game not yet started
+                    # Show situation in bottom middle
                     #
-                    if self.game["status"] == "Pre":
-                        self.game["adjustedStartTime"] = getAdjustedStartTime(self.game)
+                    self.gamePreviewPanel2.hide()
+                    self.situationPanel.setSituation(game)
+                    self.situationPanel.update()
 
-                        self.gameScorePanel.hide()
-                        self.gamePreviewPanel1.setPreview(self.game)
-                        self.gamePreviewPanel1.update()
+                else:
 
-                        self.boxScorePanel.hide()
-                        self.firstPitchCountdownPanel.setTargetTime(self.game["adjustedStartTime"])
-                        self.firstPitchCountdownPanel.update()
+                    lookaheadGame["adjustedStartTime"] = getAdjustedStartTime(lookaheadGame)
 
-                        self.situationPanel.hide()
-                        self.pitcherPreviewPanel.setPitchers(self.game)
-                        self.pitcherPreviewPanel.update()
+                    self.situationPanel.hide()
+                    self.pitcherPreviewPanel.hide()
+                    self.gamePreviewPanel2.setPreview(lookaheadGame)
+                    self.gamePreviewPanel2.update()
 
 
-                    #
-                    # Game is live or finished
-                    #
-                    elif self.game["status"] in ("Live", "Post"):
-                        self.gamePreviewPanel1.hide()
-                        self.gameScorePanel.setScore(self.game)
-                        self.gameScorePanel.update()
+        #
+        # Get updated division info, show on panel
+        #
+        if self.async.newDivisionDataAvailable:
+            divisionStandings, wcStandings = self.async.getDivisionData()
 
-                        self.firstPitchCountdownPanel.hide()
-                        self.boxScorePanel.setGame(self.game)
-                        self.boxScorePanel.update()
+            self.standingsPanel.setDivisionStandings("NL Central", divisionStandings)
+            self.standingsPanel.setWildcardStandings("NL Wildcard", wcStandings)
 
-                        if self.game["status"] == "Live":
-                            #
-                            # Show situation in bottom middle
-                            #
-                            self.gamePreviewPanel2.hide()
-                            self.situationPanel.setSituation(self.game)
-                            self.situationPanel.update()
-
-                        else:
-                            #
-                            # Preview next game in the bottom middle
-                            #
-
-                            # Look ahead until we find next game
-                            lookaheadDays = 0
-                            lookaheadGame = {}
-                            lookaheadGame["status"] = "NoGame"
-                            dateOfInterest = deepcopy(now)
-
-                            if now.hour < self.showTodaysGameHour:
-                                dateOfInterest -= timedelta(days=1)
-
-                            try:
-                                while lookaheadGame["status"] == "NoGame" and lookaheadDays < 10:
-                                    lookaheadDays += 1
-                                    dateOfInterest = dateOfInterest + timedelta(days=1)
-                                    lookaheadGame = mlb.getGameInfo(TEAM_OF_INTEREST, dateOfInterest)
-                                success = True
-                            except:
-                                success = False
-
-                            if success:
-                                currTime = datetime.now()
-                                print("Lookahead {:d} day(s) request successful at {:02d}:{:02d}:{:02d}".format(lookaheadDays, currTime.hour, currTime.minute, currTime.second)) 
-
-                                lookaheadGame["adjustedStartTime"] = getAdjustedStartTime(lookaheadGame)
-
-                                self.situationPanel.hide()
-                                self.pitcherPreviewPanel.hide()
-                                self.gamePreviewPanel2.setPreview(lookaheadGame)
-                                self.gamePreviewPanel2.update()
-
-                            else:
-                                previewFailed = True
-                                self.situationPanel.hide()
-                                self.pitcherPreviewPanel.hide()
-                                self.gamePreviewPanel2.showError()
-                                currTime = datetime.now()
-                                print("Failed lookahead request at {:02d}:{:02d}:{:02d}".format(currTime.hour, currTime.minute, currTime.second))
+            self.standingsPanel.update()
+            currTime = datetime.now()
 
 
-                    #
-                    # No Game found today or in lookahead loop
-                    #
-                    else:
-                        # Game preview panel handles NoGame message
-                        self.gameScorePanel.hide()
-                        self.gamePreviewPanel1.setPreview(self.game)
-                        self.gamePreviewPanel1.update()
 
-                    #
-                    # We know the main lookup didn't fail since we made it
-                    # this far. But we want to make sure the preview
-                    # lookup completed if today's game is over. If that
-                    # one failed, we will not mark the time so that it
-                    # will be re-queried next iteration. Only need to
-                    # explicitly check if the preview failed.
-                    #
-                    if not previewFailed:
-                        self.lastGameQueryTime = time.time()
 
-            else:
+        #
+        # Handle weather request error
+        #
+        if self.async.lastRequestedWeatherQueryTime > self.async.lastSuccessfulWeatherQueryTime:
+            requestTimeElapsed = time.time() - self.async.lastRequestedWeatherQueryTime
+
+            if requestTimeElapsed > self.timeBeforeError:
+                self.weatherPanel.showError()
+
+
+        #
+        # Handle game request error
+        #
+        if self.async.lastRequestedGameQueryTime > self.async.lastSuccessfulGameQueryTime:
+            requestTimeElapsed = time.time() - self.async.lastRequestedGameQueryTime
+        
+            if requestTimeElapsed > self.timeBeforeError:
                 self.gameScorePanel.hide()
                 self.gamePreviewPanel1.showError()
 
                 self.boxScorePanel.hide()
+
+                self.situationPanel.hide()
+                self.pitcherPreviewPanel.hide()
+
+                # Don't show these errors if it is still pre-game,
+                # because these panel are countdown and starting
+                # pitchers, which likely won't be changed at all
                 if self.game["status"] != "Pre":
                     self.firstPitchCountdownPanel.showError()
+                    self.gamePreviewPanel2.showError()
 
-                currTime = datetime.now()
-                print("Failed game or lookahead request at {:02d}:{:02d}:{:02d}".format(currTime.hour, currTime.minute, currTime.second))
-                
 
-        if self.firstUpdate or executionTime - self.lastDivisionQueryTime >= self.divisionQueryCooldown:
-            
-            success = False
-
-            try:
-                divisionStandings = mlb.getDivisionStandings(DIVISION_OF_INTEREST)
-                wcStandings = mlb.getDivisionStandings(WILDCARD_DIVISION_OF_INTEREST)
-                success = True
-            except:
-                success = False
-
-            if success:
-                self.standingsPanel.setDivisionStandings("NL Central", divisionStandings)
-                self.standingsPanel.setWildcardStandings("NL Wildcard", wcStandings)
-
-                self.standingsPanel.update()
-                currTime = datetime.now()
-                print("Standings requests successful at {:02d}:{:02d}:{:02d}".format(currTime.hour, currTime.minute, currTime.second))
-
-                self.lastDivisionQueryTime = time.time()
-            else:
+        #
+        # Handle division request error
+        #
+        if self.async.lastRequestedDivisionQueryTime > self.async.lastSuccessfulDivisionQueryTime:
+            requestTimeElapsed = time.time() - self.async.lastRequestedDivisionQueryTime
+        
+            if requestTimeElapsed > self.timeBeforeError:                
                 self.standingsPanel.showError()
-                currTime = datetime.now()
-                print("Failed standings request at {:02d}:{:02d}:{:02d}".format(currTime.hour, currTime.minute, currTime.second))
-                
 
+
+        #
+        # Switch standings panel between main division and wildcard
+        #
         if executionTime - self.lastSwitchStandingsTime >= self.switchStandingsTime:
             self.standingsPanel.switchStandingsDisplay()
             self.lastSwitchStandingsTime = time.time()
@@ -526,6 +628,7 @@ class LiveScoreboard:
             # Update the first pitch countdown panel
             if self.game is not None and self.game["status"] == "Pre":
                 self.firstPitchCountdownPanel.update()
+
 
         self.firstUpdate = False
         self.lastUpdateTime = now
@@ -902,6 +1005,9 @@ class StandingsPanel:
     # Switch between showing division and WC standings
     #
     def switchStandingsDisplay(self):
+        if not self.initiallySet:
+            return
+
         self.displayingWildcard = not self.displayingWildcard
 
         if self.displayingWildcard:
@@ -914,6 +1020,9 @@ class StandingsPanel:
         self.update()
 
     def update(self):
+        if not self.initiallySet:
+            return
+
         self.canvas.delete("updates")
         
         lineY = self.lineHeight # start 1 line in to have some padding on top        

@@ -180,10 +180,10 @@ class MlbScraperMlbApi():
                     # data as the situation
                     else:
                         game["situation"]["batter"]["name"] = gameData["due_up_batter"]["name_display_roster"]
-                        game["situation"]["batter"]["avg"] = gameData["due_up_batter"]["avg"]
+                        game["situation"]["batter"]["avg"]  = gameData["due_up_batter"]["avg"]
                         
                         game["situation"]["pitcher"]["name"] = gameData["opposing_pitcher"]["name_display_roster"]
-                        game["situation"]["pitcher"]["era"] = gameData["opposing_pitcher"]["era"]
+                        game["situation"]["pitcher"]["era"]  = gameData["opposing_pitcher"]["era"]
                         
                         game["situation"]["balls"]   = 0
                         game["situation"]["strikes"] = 0
@@ -200,15 +200,15 @@ class MlbScraperMlbApi():
                 # save opportunities).
                 if game["status"] == "Post":
                     game["pitcherResults"] = {}
-                    game["pitcherResults"]["win"] = {}
+                    game["pitcherResults"]["win"]  = {}
                     game["pitcherResults"]["loss"] = {}
                     
-                    game["pitcherResults"]["win"]["name"] = gameData["winning_pitcher"]["name_display_roster"]
-                    game["pitcherResults"]["win"]["updatedWins"] = gameData["winning_pitcher"]["wins"]
+                    game["pitcherResults"]["win"]["name"]          = gameData["winning_pitcher"]["name_display_roster"]
+                    game["pitcherResults"]["win"]["updatedWins"]   = gameData["winning_pitcher"]["wins"]
                     game["pitcherResults"]["win"]["updatedLosses"] = gameData["winning_pitcher"]["losses"]
 
-                    game["pitcherResults"]["loss"]["name"] = gameData["losing_pitcher"]["name_display_roster"]
-                    game["pitcherResults"]["loss"]["updatedWins"] = gameData["losing_pitcher"]["wins"]
+                    game["pitcherResults"]["loss"]["name"]          = gameData["losing_pitcher"]["name_display_roster"]
+                    game["pitcherResults"]["loss"]["updatedWins"]   = gameData["losing_pitcher"]["wins"]
                     game["pitcherResults"]["loss"]["updatedLosses"] = gameData["losing_pitcher"]["losses"]
 
                     if gameData["save_pitcher"]["name_display_roster"] != "":
@@ -222,10 +222,10 @@ class MlbScraperMlbApi():
                 # not-yet-completed innings with '-', and unnecessary
                 # bottom of the last inning with 'X'
                 if game["status"] in ("Live", "Post"):
-                    game["away"]["hits"] = gameData["linescore"]["h"]["away"]
-                    game["home"]["hits"] = gameData["linescore"]["h"]["home"]
-                    game["away"]["runs"] = gameData["linescore"]["r"]["away"]
-                    game["home"]["runs"] = gameData["linescore"]["r"]["home"]
+                    game["away"]["hits"]   = gameData["linescore"]["h"]["away"]
+                    game["home"]["hits"]   = gameData["linescore"]["h"]["home"]
+                    game["away"]["runs"]   = gameData["linescore"]["r"]["away"]
+                    game["home"]["runs"]   = gameData["linescore"]["r"]["home"]
                     game["away"]["errors"] = gameData["linescore"]["e"]["away"]
                     game["home"]["errors"] = gameData["linescore"]["e"]["home"]
 
