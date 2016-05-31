@@ -171,7 +171,7 @@ class AsyncRequester:
     def __asyncRequestWeatherData(self):
         success = False
 
-        lastRequestedWeatherQueryTime = time.time()
+        self.lastRequestedWeatherQueryTime = time.time()
 
         while not success:
             try:
@@ -184,7 +184,8 @@ class AsyncRequester:
 
         currTime = datetime.now()
         print("SUCCESS: Weather request at {:02d}:{:02d}:{:02d}".format(currTime.hour, currTime.minute, currTime.second))
-        lastSuccessfulWeatherQueryTime = time.time()
+
+        self.lastSuccessfulWeatherQueryTime = time.time()
         self.newWeatherDataAvailable = True
 
     def __asyncRequestGameData(self):
@@ -247,6 +248,7 @@ class AsyncRequester:
 
         currTime = datetime.now()
         print("SUCCESS: Game request at {:02d}:{:02d}:{:02d}".format(currTime.hour, currTime.minute, currTime.second))
+
         self.lastSuccessfulGameQueryTime = time.time()
         self.newGameDataAvailable = True
 
@@ -268,6 +270,7 @@ class AsyncRequester:
 
         currTime = datetime.now()
         print("SUCCESS: Standings request at {:02d}:{:02d}:{:02d}".format(currTime.hour, currTime.minute, currTime.second))
+
         self.lastSuccessfulDivisionQueryTime = time.time()
         self.newDivisionDataAvailable = True
 
