@@ -1382,10 +1382,10 @@ class SituationPanel:
         if "lastPlay" in self.game["situation"]:
             maxLastPlayStringLength = 60
             lastPlayString = self.game["situation"]["lastPlay"]
-            lastPlayString.replace("  ", " ") # MLB uses double spaces after period *facepalm*
+            lastPlayString = lastPlayString.replace("  ", " ") # MLB uses double spaces after period *facepalm*
 
             if len(lastPlayString) > maxLastPlayStringLength:
-                lastSpaceIndex = lastPlayString.rfind(" ")
+                lastSpaceIndex = lastPlayString.rfind(" ", 0, maxLastPlayStringLength)
                 lastPlayString = lastPlayString[0:lastSpaceIndex] + " ..."
             
             #
@@ -1426,7 +1426,7 @@ class SituationPanel:
                 longestStringLength = len(lastPlayString) - spaceIndex
 
             bottomRightLines = 2
-            bottomRightFont, bottomRightFontHeight = fontFit(fontName, "#" * longestStringLength, (self.width * self.rightWidthPercent, self.height * self.botHeightPercent / bottomRightLines // lineHeightMultiplier))
+            bottomRightFont, bottomRightFontHeight = fontFit(fontName, "#" * longestStringLength, (self.width * self.rightWidthPercent * .9, self.height * self.botHeightPercent / bottomRightLines // lineHeightMultiplier))
             bottomRightLineHeight = bottomRightFontHeight * lineHeightMultiplier
 
             bottomRightCenter = (self.width * self.leftWidthPercent + self.width * self.rightWidthPercent // 2,
