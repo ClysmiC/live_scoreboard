@@ -507,45 +507,45 @@ class LiveScoreboard:
         if self.async.newGameDataAvailable:
             # Note: lookaheadGame is only displayed when game is in
             # "post" and we want to show tomorrow's game
-            game, lookaheadGame = self.async.getGameData()
+            self.game, lookaheadGame = self.async.getGameData()
 
             #
             # Game not yet started
             #
-            if game["status"] == "Pre":
-                game["adjustedStartTime"] = getAdjustedStartTime(game)
+            if self.game["status"] == "Pre":
+                self.game["adjustedStartTime"] = getAdjustedStartTime(self.game)
 
                 self.gameScorePanel.hide()
-                self.gamePreviewPanel1.setPreview(game)
+                self.gamePreviewPanel1.setPreview(self.game)
                 self.gamePreviewPanel1.update()
 
                 self.boxScorePanel.hide()
-                self.firstPitchCountdownPanel.setTargetTime(game["adjustedStartTime"])
+                self.firstPitchCountdownPanel.setTargetTime(self.game["adjustedStartTime"])
                 self.firstPitchCountdownPanel.update()
 
                 self.situationPanel.hide()
-                self.pitcherPreviewPanel.setPitchers(game)
+                self.pitcherPreviewPanel.setPitchers(self.game)
                 self.pitcherPreviewPanel.update()
 
 
             #
             # Game is live or finished
             #
-            elif game["status"] in ("Live", "Post"):
+            elif self.game["status"] in ("Live", "Post"):
                 self.gamePreviewPanel1.hide()
-                self.gameScorePanel.setScore(game)
+                self.gameScorePanel.setScore(self.game)
                 self.gameScorePanel.update()
 
                 self.firstPitchCountdownPanel.hide()
-                self.boxScorePanel.setGame(game)
+                self.boxScorePanel.setGame(self.game)
                 self.boxScorePanel.update()
 
-                if game["status"] == "Live":
+                if self.game["status"] == "Live":
                     #
                     # Show situation in bottom middle
                     #
                     self.gamePreviewPanel2.hide()
-                    self.situationPanel.setSituation(game)
+                    self.situationPanel.setSituation(self.game)
                     self.situationPanel.update()
 
                 else:
