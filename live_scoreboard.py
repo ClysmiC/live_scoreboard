@@ -33,6 +33,8 @@ WILDCARD_DIVISION_OF_INTEREST = "NLWC"
 
 WEATHER_LOCATION = ("Seattle", "WA")
 
+TWENTY_FOUR_HOUR_CLOCK = True
+
 timezones = ["PT", "MST", "CT", "ET"]
 
 months = ["NONE", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -40,7 +42,9 @@ months = ["NONE", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep",
 # 0 = Monday for some reason in datetime module
 daysOfWeek = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
-wundergroundApiKey = "6d48850a7f579fe7"
+wundergroundApiKey = open("weather_api_key.txt", 'r')
+wundergroundApiKey = wundergroundApiKey.readline()
+wundergroundApiKey = wundergroundApiKey.replace("\n", "")
 
 background = (40, 40, 80) # royal, dark/ish blue
 panelBgAlpha = 120
@@ -91,14 +95,26 @@ def loadAndResizeImage(filePath, newSize):
     im = im.resize((int(newSize[0]), int(newSize[1])))
     return ImageTk.PhotoImage(im) # Image format compatible w/ tkinter
 
-
-
 def getAdjustedStartTime(game):
     # Adjust game time to the current timezone
     rawDateTime = game["startTime"]["time"]
     hoursToAdjust = timezones.index(RASPBERRY_PI_TIMEZONE) - timezones.index(game["startTime"]["timeZone"])
     adjustedStartTime = rawDateTime + timedelta(hours=hoursToAdjust)
     return adjustedStartTime
+
+def toTwelveHourClock(time):
+    newHour = time.hour
+    suffix = "PM"
+
+    if (newHour > 12):
+        newHour -= 12
+    else:
+        if(newHour == 0):
+            newHour = 12
+
+        suffix = "AM"
+
+    return newHour, suffix
 
 class AsyncRequester:
     def __init__(self):
@@ -688,7 +704,12 @@ class TimePanel:
         self.canvas.delete("updates")
 
         string1 = daysOfWeek[self.dateAndTime.weekday()] + ", " + months[self.dateAndTime.month] + " " + str(self.dateAndTime.day)
-        string2 = "{:02d}:{:02d}:{:02d}".format(self.dateAndTime.hour, self.dateAndTime.minute, self.dateAndTime.second)
+
+        if TWENTY_FOUR_HOUR_CLOCK:
+            string2 = "{:02d}:{:02d}:{:02d}".format(self.dateAndTime.hour, self.dateAndTime.minute, self.dateAndTime.second)
+        else:
+            hour, suffix = toTwelveHourClock(self.dateAndTime)
+            string2 = "{:02d}:{:02d}:{:02d} {:s}".format(hour, self.dateAndTime.minute, self.dateAndTime.second, suffix)
 
         self.canvas.create_text((self.width // 2, self.height * .30), text=string1, fill=fontColor, font=self.font, tags="updates")
         self.canvas.create_text((self.width // 2, self.height * .70), text=string2, fill=fontColor, font=self.font, tags="updates")
@@ -708,6 +729,9 @@ class WeatherPanel:
         # space alloted for weather icons.  This width will be used
         # when centering text in panel.
         exampleString = " 00:00 - 100  F  "
+
+        if not TWENTY_FOUR_HOUR_CLOCK:
+            exampleString = " 10:00 AM - 100  F  "
 
         numLines = 18
         lineHeightMultiplier = 1.2 # Multiply font height by this to get line height
@@ -763,7 +787,11 @@ class WeatherPanel:
                 self.textY += self.lineHeight * 1.2 # just a little extra padding here looks better
                 lastDateLabelDay = time.day
 
-            hourString = " {:02d}:{:02d}".format(time.hour, time.minute) + " - " + "{:>3s}".format(hour["temp"]) + " F "
+            if TWENTY_FOUR_HOUR_CLOCK:
+                hourString = " {:02d}:{:02d}".format(time.hour, time.minute) + " - " + "{:>3s}".format(hour["temp"]) + " F "
+            else:
+                timeHour, suffix = toTwelveHourClock(time)
+                hourString = " {:02d}:{:02d} {:s}".format(timeHour, time.minute, suffix) + " - " + "{:>3s}".format(hour["temp"]) + " F "
 
             hourFontColor = fontColor
             if firstHour:
@@ -793,7 +821,7 @@ class WeatherPanel:
         self.canvas.create_text((self.width//2, self.height//2), anchor=tk.CENTER, font=self.font, fill=fontColor, text="Error...", tags="updates")
 
 
-class GameScorePanel():
+class GameScorePanel:
     def __init__(self, x, y, panelWidth, panelHeight):
         self.width = panelWidth
         self.height = panelHeight
@@ -840,10 +868,10 @@ class GameScorePanel():
         self.canvas.delete("updates")
         self.show()
 
-        awayString   = " " * self.numLeadingSpacesForLogo + self.game["away"]["name"] + " {:2s}".format(self.game["away"]["runs"])
+        awayString   = " " * self.numLeadingSpacesForLogo + "{:3s}".format(self.game["away"]["name"]) + " {:2s}".format(self.game["away"]["runs"])
         awayLogo = self.scaledLogos[self.game["away"]["name"]]
 
-        homeString   = " " * self.numLeadingSpacesForLogo + self.game["home"]["name"] + " {:2s}".format(self.game["home"]["runs"])
+        homeString   = " " * self.numLeadingSpacesForLogo + "{:3s}".format(self.game["home"]["name"]) + " {:2s}".format(self.game["home"]["runs"])
         homeLogo = self.scaledLogos[self.game["home"]["name"]]
 
         if self.game["status"] == "Live":
@@ -895,6 +923,10 @@ class GamePreviewPanel:
 
         exampleTopString = "CHC @ STL"
         exampleBotString = "May 12, 15:28"
+
+        if not TWENTY_FOUR_HOUR_CLOCK:
+            exampleBotString = "May 12, 10:28 AM"
+
         self.font, self.fontHeight = fontFit(fontName, exampleBotString, (self.width * .5, self.height * 0.8 / 2 // lineHeightMultiplier))
 
         self.lineHeight = self.fontHeight * lineHeightMultiplier
@@ -933,8 +965,14 @@ class GamePreviewPanel:
             topString = "{:3s} @ {:3s}".format(self.game["away"]["name"], self.game["home"]["name"])
 
             ast = self.game["adjustedStartTime"]
+
             
-            botString = "{:s} {:d}, {:02d}:{:02d}".format(months[ast.month], ast.day, ast.hour, ast.minute)
+            if TWENTY_FOUR_HOUR_CLOCK:
+                botString = "{:s} {:d}, {:02d}:{:02d}".format(months[ast.month], ast.day, ast.hour, ast.minute)
+            else:
+                hour, suffix = toTwelveHourClock(ast)
+                botString = "{:s} {:d}, {:02d}:{:02d} {:s}".format(months[ast.month], ast.day, hour, ast.minute, suffix)
+
 
             awayLogo = self.scaledLogos[self.game["away"]["name"]]
             homeLogo = self.scaledLogos[self.game["home"]["name"]]

@@ -1,6 +1,8 @@
 from weather.weather_info_wunderground import hourlyForecast
 
-apiKey = "6d48850a7f579fe7"
+apiKey = open("weather_api_key.txt", 'r')
+apiKey = apiKey.readline()
+apiKey = apiKey.replace("\n", "")
 
 weather = hourlyForecast("Saint Louis", "MO", apiKey)
 months = ["NONE", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
